@@ -102,7 +102,17 @@ def _overview_chart(report: Report) -> str:
     return f'<div class="chart card">{rows}</div>'
 
 
-def _issue_table(result) -> str:
+def _company_cell(name: str, url: str | None) -> str:
+    name = esc(name)
+    if url:
+        return (
+            f'<td class="co"><a href="{esc(url)}" target="_blank" '
+            f'rel="noopener noreferrer">{name}<span class="ext"> ↗</span></a></td>'
+        )
+    return f'<td class="co">{name}</td>'
+
+
+def _issue_table(result, url_by_id: dict[str, str]) -> str:
     if not result.issues:
         return '<p class="empty">No issues found for this check. ✓</p>'
     show_round = any(i.round_date for i in result.issues)
@@ -112,7 +122,7 @@ def _issue_table(result) -> str:
     header += "<th>Detail</th>"
     body = ""
     for i in result.issues:
-        row = f'<td class="co">{esc(i.company_name)}</td>'
+        row = _company_cell(i.company_name, url_by_id.get(i.company_id))
         if show_round:
             rt = esc(i.round_type) if i.round_type else "—"
             date = esc(i.round_date) if i.round_date else ""
@@ -133,7 +143,7 @@ def _issue_table(result) -> str:
     </div>"""
 
 
-def _check_sections(report: Report) -> str:
+def _check_sections(report: Report, url_by_id: dict[str, str]) -> str:
     sections = ""
     for result in report.results:
         meta = result.meta
@@ -147,7 +157,7 @@ def _check_sections(report: Report) -> str:
             <span class="check-count">{result.count}</span>
           </summary>
           <p class="check-q">{esc(meta.question)}</p>
-          {_issue_table(result)}
+          {_issue_table(result, url_by_id)}
         </details>"""
     return sections
 
@@ -227,6 +237,9 @@ th, td { text-align:left; padding:9px 20px; border-bottom:1px solid var(--border
 th { font-size:11px; text-transform:uppercase; letter-spacing:0.04em; color:var(--muted); font-weight:600; }
 th.num, td.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
 td.co { font-weight:600; white-space:nowrap; }
+td.co a { color:inherit; text-decoration:none; border-bottom:1px solid var(--border); padding-bottom:1px; }
+td.co a:hover { border-bottom-color:currentColor; }
+td.co a .ext { color:var(--muted); font-weight:400; }
 .rt { font-weight:600; }
 .muted { color:var(--muted); }
 .empty { color:var(--muted); font-size:13px; padding:16px 20px; margin:0; }
@@ -252,6 +265,7 @@ def render_page(snapshot: Snapshot, report: Report) -> str:
     band_color = SEVERITY_COLOR[band]
     band_word = {"good": "Healthy", WARNING: "Needs attention",
                  SERIOUS: "At risk", CRITICAL: "Critical"}[band]
+    url_by_id = {c.id: c.dealroom_url for c in snapshot.companies}
 
     return f"""<!doctype html>
 <html lang="en" data-theme="">
@@ -286,7 +300,7 @@ def render_page(snapshot: Snapshot, report: Report) -> str:
   {_overview_chart(report)}
 
   <h2>Findings</h2>
-  {_check_sections(report)}
+  {_check_sections(report, url_by_id)}
 
   <footer>
     <p><strong>Methodology.</strong> Data-health checks run over a real Dealroom
