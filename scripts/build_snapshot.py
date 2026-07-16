@@ -57,7 +57,7 @@ COMPANIES = [
         "status": "operational",
         "growth_stage": "late stage",
         "industry": "fintech",
-        "dealroom_url": "https://app.dealroom.co/revolut",
+        "dealroom_url": "https://app.dealroom.co/companies/revolut",
         "rounds": [
             ("2025-11", "SECONDARY", usd(3.0, "B"), val(75), True),
             ("2025-07", "LATE VC", usd(2.0, "B"), val(75), True),
@@ -87,7 +87,7 @@ COMPANIES = [
         "status": "acquired",
         "growth_stage": "late stage",
         "industry": "energy",
-        "dealroom_url": "https://app.dealroom.co/northvolt",
+        "dealroom_url": "https://app.dealroom.co/companies/northvolt",
         "rounds": [
             ("2025-08", "ACQUISITION", 0, None, False),
             ("2024-11", "BANKRUPTCY", 0, None, False),
@@ -122,7 +122,7 @@ COMPANIES = [
         "status": "operational",
         "growth_stage": "late stage",
         "industry": "fintech",
-        "dealroom_url": "https://app.dealroom.co/klarna",
+        "dealroom_url": "https://app.dealroom.co/companies/klarna",
         "rounds": [
             ("2026-07", "POST IPO DEBT", usd(900, "M", "EUR"), None, False),
             ("2026-03", "POST IPO DEBT", usd(2.0, "B"), None, False),
@@ -161,7 +161,7 @@ COMPANIES = [
         "status": "operational",
         "growth_stage": "late stage",
         "industry": "artificial intelligence",
-        "dealroom_url": "https://app.dealroom.co/mistral_ai",
+        "dealroom_url": "https://app.dealroom.co/companies/mistral_ai",
         "rounds": [
             ("2026-03", "DEBT", usd(830), None, False),
             ("2025-09", "SERIES C", usd(1.7, "B", "EUR"), val(11.8), True),
@@ -184,7 +184,7 @@ COMPANIES = [
         "status": "operational",
         "growth_stage": "late stage",
         "industry": "artificial intelligence",
-        "dealroom_url": "https://app.dealroom.co/wayve",
+        "dealroom_url": "https://app.dealroom.co/companies/wayve",
         "rounds": [
             ("2026-04", "SERIES D", usd(60), val(8.6), True),
             ("2026-02", "SERIES D", usd(1.2, "B"), val(8.6), True),
@@ -209,7 +209,7 @@ COMPANIES = [
         "status": "operational",
         "growth_stage": "late stage",
         "industry": "defense",
-        "dealroom_url": "https://app.dealroom.co/helsing",
+        "dealroom_url": "https://app.dealroom.co/companies/helsing",
         "rounds": [
             ("2026-07", "SERIES E", usd(1.8, "B"), val(18), True),
             ("2025-06", "SERIES D", usd(600, "M", "EUR"), val(12), True),
@@ -228,7 +228,7 @@ COMPANIES = [
         "status": "operational",
         "growth_stage": "late stage",
         "industry": "fintech",
-        "dealroom_url": "https://app.dealroom.co/monzo_bank",
+        "dealroom_url": "https://app.dealroom.co/companies/monzo_bank",
         "rounds": [
             ("2024-10", "SECONDARY", 0, val(5.4), False),
             ("2024-05", "LATE VC", usd(190), val(5.2), False),
@@ -265,7 +265,7 @@ COMPANIES = [
         "status": "acquired",
         "growth_stage": "late stage",
         "industry": "media",
-        "dealroom_url": "https://app.dealroom.co/quibi",
+        "dealroom_url": "https://app.dealroom.co/companies/quibi",
         "rounds": [
             ("2021-01", "ACQUISITION", usd(100), None, False),
             ("2020-01", None, usd(750), None, False),
@@ -282,7 +282,7 @@ COMPANIES = [
         "status": "operational",
         "growth_stage": "late stage",
         "industry": "energy",
-        "dealroom_url": "https://app.dealroom.co/venari_resources",
+        "dealroom_url": "https://app.dealroom.co/companies/venari_resources",
         "rounds": [
             ("2014-01", None, usd(1.3, "B"), None, False),
             ("2012-05", None, usd(1.125, "B"), None, False),

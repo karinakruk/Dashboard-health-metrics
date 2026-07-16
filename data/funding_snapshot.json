@@ -13,7 +13,7 @@
       "status": "operational",
       "growth_stage": "late stage",
       "industry": "fintech",
-      "dealroom_url": "https://app.dealroom.co/revolut",
+      "dealroom_url": "https://app.dealroom.co/companies/revolut",
       "rounds": [
         {
           "date": "2025-11",
@@ -140,7 +140,7 @@
       "status": "acquired",
       "growth_stage": "late stage",
       "industry": "energy",
-      "dealroom_url": "https://app.dealroom.co/northvolt",
+      "dealroom_url": "https://app.dealroom.co/companies/northvolt",
       "rounds": [
         {
           "date": "2025-08",
@@ -302,7 +302,7 @@
       "status": "operational",
       "growth_stage": "late stage",
       "industry": "fintech",
-      "dealroom_url": "https://app.dealroom.co/klarna",
+      "dealroom_url": "https://app.dealroom.co/companies/klarna",
       "rounds": [
         {
           "date": "2026-07",
@@ -492,7 +492,7 @@
       "status": "operational",
       "growth_stage": "late stage",
       "industry": "artificial intelligence",
-      "dealroom_url": "https://app.dealroom.co/mistral_ai",
+      "dealroom_url": "https://app.dealroom.co/companies/mistral_ai",
       "rounds": [
         {
           "date": "2026-03",
@@ -570,7 +570,7 @@
       "status": "operational",
       "growth_stage": "late stage",
       "industry": "artificial intelligence",
-      "dealroom_url": "https://app.dealroom.co/wayve",
+      "dealroom_url": "https://app.dealroom.co/companies/wayve",
       "rounds": [
         {
           "date": "2026-04",
@@ -662,7 +662,7 @@
       "status": "operational",
       "growth_stage": "late stage",
       "industry": "defense",
-      "dealroom_url": "https://app.dealroom.co/helsing",
+      "dealroom_url": "https://app.dealroom.co/companies/helsing",
       "rounds": [
         {
           "date": "2026-07",
@@ -712,7 +712,7 @@
       "status": "operational",
       "growth_stage": "late stage",
       "industry": "fintech",
-      "dealroom_url": "https://app.dealroom.co/monzo_bank",
+      "dealroom_url": "https://app.dealroom.co/companies/monzo_bank",
       "rounds": [
         {
           "date": "2024-10",
@@ -888,7 +888,7 @@
       "status": "acquired",
       "growth_stage": "late stage",
       "industry": "media",
-      "dealroom_url": "https://app.dealroom.co/quibi",
+      "dealroom_url": "https://app.dealroom.co/companies/quibi",
       "rounds": [
         {
           "date": "2021-01",
@@ -924,7 +924,7 @@
       "status": "operational",
       "growth_stage": "late stage",
       "industry": "energy",
-      "dealroom_url": "https://app.dealroom.co/venari_resources",
+      "dealroom_url": "https://app.dealroom.co/companies/venari_resources",
       "rounds": [
         {
           "date": "2014-01",
