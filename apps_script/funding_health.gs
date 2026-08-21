@@ -57,7 +57,7 @@ var QUEUE_SQL =
   "  FROM data_health.issues) " +
   "SELECT " +
   "  FORMAT_DATE('%Y-%m-%d', CURRENT_DATE()) AS run_date, " +
-  "  rule_id, severity, company_name, company_slug, " +
+  "  rule_id, severity, company_name, company_url, " +
   "  IFNULL(hq_country, '') AS hq_country, " +
   "  IFNULL(round_date, '') AS round_date, " +
   "  IFNULL(round_type, '') AS round_type, " +

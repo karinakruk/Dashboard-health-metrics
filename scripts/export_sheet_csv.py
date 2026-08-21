@@ -35,7 +35,7 @@ SUMMARY_HEADERS = [
     "companies_affected", "impact_usd_total",
 ]
 QUEUE_HEADERS = [
-    "run_date", "rule_id", "severity", "company_name", "company_slug",
+    "run_date", "rule_id", "severity", "company_name", "company_url",
     "hq_country", "round_date", "round_type", "amount_usd", "impact_usd", "detail",
 ]
 
@@ -45,10 +45,6 @@ def default_out() -> Path:
     if sibling.is_dir():
         return sibling / "public" / "dev-data"
     return Path("dev-data")
-
-
-def slug_from_url(url: str) -> str:
-    return url.rstrip("/").rsplit("/", 1)[-1] if url else ""
 
 
 def main() -> None:
@@ -106,7 +102,7 @@ def main() -> None:
                 "rule_id": item.rule_id,
                 "severity": item.severity,
                 "company_name": item.company_name,
-                "company_slug": slug_from_url(item.company_url),
+                "company_url": item.company_url,
                 "hq_country": item.country or "",
                 "round_date": item.round_date or "",
                 "round_type": item.round_type or "",

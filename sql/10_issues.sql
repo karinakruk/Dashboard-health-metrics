@@ -22,31 +22,45 @@ CREATE OR REPLACE TABLE data_health.issues
 CLUSTER BY rule_id AS
 
 WITH
--- >>> EDIT HERE (1/2): map the real companies table onto this shape ----------
+-- ── Source mapping (verified against the live schema, 2026-08-21) ──────────
+-- dealroom_intelligence.entities : 5.8M rows / 8.85 GB, 92 cols. Companies are
+--   entity_type = 'organization' (people share the table). dealroom_url is
+--   always populated, so profile links are read, never constructed.
+-- dealroom_intelligence.funding  : 1.09M rows / 0.18 GB. flg_is_verified is
+--   Dealroom's own verification flag — the one shown as "Unverified" on the
+--   profile. Dates are year/month integers, not a DATE column.
 companies AS (
   SELECT
-    CAST(id            AS STRING) AS company_id,
-    name                          AS company_name,
-    path                          AS company_slug,
-    hq_country                    AS hq_country,
-    -- "has a location" = anything usable for ecosystem attribution
-    (hq_country IS NOT NULL AND TRIM(hq_country) != '') AS has_location,
-    CAST(employees_latest AS INT64)   AS employees,
-    CAST(total_funding_usd AS INT64)  AS total_funding_usd,
-    CAST(last_valuation_usd AS INT64) AS latest_valuation_usd
-  FROM `dealroom_intelligence.companies`
+    CAST(e.id AS STRING)              AS company_id,
+    e.name                            AS company_name,
+    e.dealroom_url                    AS company_url,
+    (SELECT l.country FROM UNNEST(e.locations) l
+      WHERE l.flg_is_hq AND l.country IS NOT NULL LIMIT 1) AS hq_country,
+    -- "Has a location" = anything that can carry the amount into an ecosystem,
+    -- so any location with a country counts, not just the flagged HQ.
+    EXISTS(SELECT 1 FROM UNNEST(e.locations) l
+             WHERE l.country IS NOT NULL AND TRIM(l.country) != '') AS has_location,
+    CAST(e.employees AS INT64)             AS employees,
+    CAST(e.total_funding_usd AS INT64)     AS total_funding_usd,
+    CAST(e.latest_valuation_usd AS INT64)  AS latest_valuation_usd
+  FROM dealroom_intelligence.entities e
+  WHERE e.entity_type = 'organization'
 ),
--- >>> EDIT HERE (2/2): map the real funding-rounds table onto this shape -----
 rounds AS (
   SELECT
-    CAST(id         AS STRING) AS round_id,
-    CAST(company_id AS STRING) AS company_id,
-    round_date                 AS round_date,
-    round_type                 AS round_type,
-    CAST(amount_usd    AS INT64) AS amount_usd,
-    CAST(valuation_usd AS INT64) AS valuation_usd,
-    is_verified                AS is_verified  -- nullable: NULL = unknown, not unverified
-  FROM `dealroom_intelligence.funding_rounds`
+    CAST(f.id AS STRING)        AS round_id,
+    CAST(f.entity_id AS STRING) AS company_id,
+    -- Sortable YYYY-MM; month is often absent, year rarely.
+    CASE
+      WHEN f.year IS NULL  THEN NULL
+      WHEN f.month IS NULL THEN FORMAT('%04d', f.year)
+      ELSE FORMAT('%04d-%02d', f.year, f.month)
+    END                         AS round_date,
+    f.round                     AS round_type,
+    CAST(f.amount_usd AS INT64) AS amount_usd,
+    CAST(f.valuation_usd AS INT64) AS valuation_usd,
+    f.flg_is_verified           AS is_verified  -- nullable: NULL = unknown
+  FROM dealroom_intelligence.funding f
 ),
 -- ---------------------------------------------------------------------------
 -- Stage ladder. Types absent here are not a fundraising *stage* (debt, grants,
@@ -112,7 +126,7 @@ company_big_rounds AS (
 big_unverified AS (
   SELECT
     'big_unverified' AS rule_id, 'serious' AS severity,
-    c.company_id, c.company_name, c.company_slug, c.hq_country,
+    c.company_id, c.company_name, c.company_url, c.hq_country,
     r.round_id, r.round_date, r.round_type, r.amount_usd,
     r.amount_usd AS impact_usd,
     'Round is marked Unverified in Dealroom.' AS detail
@@ -126,7 +140,7 @@ big_unverified AS (
 missing_round_type AS (
   SELECT
     'missing_round_type', 'critical',
-    c.company_id, c.company_name, c.company_slug, c.hq_country,
+    c.company_id, c.company_name, c.company_url, c.hq_country,
     r.round_id, r.round_date, r.round_type, r.amount_usd,
     r.amount_usd,
     'Round has no round type set.'
@@ -139,7 +153,7 @@ missing_round_type AS (
 sequence_out_of_order AS (
   SELECT
     'sequence_out_of_order', 'warning',
-    c.company_id, c.company_name, c.company_slug, c.hq_country,
+    c.company_id, c.company_name, c.company_url, c.hq_country,
     r.round_id, r.round_date, r.round_type, r.amount_usd,
     r.amount_usd,
     CONCAT(r.round_type, ' recorded after a later-stage round already took place.')
@@ -154,8 +168,8 @@ sequence_out_of_order AS (
 late_without_early AS (
   SELECT
     'late_without_early', 'warning',
-    c.company_id, c.company_name, c.company_slug, c.hq_country,
-    NULL, NULL, NULL, NULL,
+    c.company_id, c.company_name, c.company_url, c.hq_country,
+    CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS INT64),
     c.total_funding_usd,
     'Has late-stage rounds but no early-stage round on record — possible duplicate profile or missing early rounds.'
   FROM company_tiers t
@@ -167,8 +181,8 @@ late_without_early AS (
 big_round_no_location AS (
   SELECT
     'big_round_no_location', 'serious',
-    c.company_id, c.company_name, c.company_slug, c.hq_country,
-    NULL, NULL, NULL, b.biggest_amount_usd,
+    c.company_id, c.company_name, c.company_url, c.hq_country,
+    CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS STRING), b.biggest_amount_usd,
     b.biggest_amount_usd,
     CONCAT(CAST(b.big_round_count AS STRING),
            ' big round(s) but no location set — the amount cannot flow into an ecosystem value.')
@@ -181,8 +195,8 @@ big_round_no_location AS (
 high_funding_few_employees AS (
   SELECT
     'high_funding_few_employees', 'serious',
-    c.company_id, c.company_name, c.company_slug, c.hq_country,
-    NULL, NULL, NULL, c.total_funding_usd,
+    c.company_id, c.company_name, c.company_url, c.hq_country,
+    CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS STRING), c.total_funding_usd,
     c.total_funding_usd,
     CONCAT(CAST(c.employees AS STRING), ' employees but ',
            FORMAT('%.1f', c.total_funding_usd / 1e9), 'B total funding — headcount likely missing or stale.')
@@ -203,5 +217,7 @@ FROM (
   UNION ALL SELECT * FROM late_without_early
   UNION ALL SELECT * FROM big_round_no_location
   UNION ALL SELECT * FROM high_funding_few_employees
-)
-ORDER BY impact_usd DESC NULLS LAST;
+);
+-- No ORDER BY here: a clustered CTAS cannot be ordered, and clustering by
+-- rule_id is what makes the per-rule reads cheap. Ranking by impact happens in
+-- 20_summary.sql and in the Apps Script export, which is where it matters.
