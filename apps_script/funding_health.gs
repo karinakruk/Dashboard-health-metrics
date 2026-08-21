@@ -11,11 +11,11 @@
  *                                        Profile-edit-monitor fetches CSV
  *
  * SETUP
- *  1. Open the EXISTING Dealroom dashboard Sheet — the one every
- *     Profile-edit-monitor tab already reads:
- *       https://docs.google.com/spreadsheets/d/197ma3re5uyIG8O7WGXkHGZ5M54Q1MlzlwSlPZwnYh7g
- *     → Extensions → Apps Script; paste this file. (It adds two new tabs
- *     and touches nothing else, so the existing tabs are unaffected.)
+ *  1. Open the funding-health Sheet:
+ *       https://docs.google.com/spreadsheets/d/1geXbBHZO4HXuoJbO8CkwBJlz5nbUzFaMqQEDBu_-MEM
+ *     → Extensions → Apps Script; paste this file.
+ *     (Dedicated sheet: the main 'Edits tracking' sheet is read-only
+ *      for the data team, so the script cannot live there.)
  *  2. Services → add "BigQuery API" (identifier: BigQuery).
  *  3. Set PROJECT_ID below.
  *  4. Run `testBigQueryConnection` and grant the OAuth prompt. This proves

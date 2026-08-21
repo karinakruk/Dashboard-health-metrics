@@ -64,7 +64,11 @@ gcloud auth login
 4. **Schedule the checks** — run `sql/10_issues.sql` and `sql/20_summary.sql`
    as a BigQuery **scheduled query** (daily). These are the only steps that
    touch the raw warehouse.
-5. **Land them in the Sheet** — follow the setup notes at the top of
+5. **Land them in the Sheet** — the dedicated
+   [Funding Data Health sheet](https://docs.google.com/spreadsheets/d/1geXbBHZO4HXuoJbO8CkwBJlz5nbUzFaMqQEDBu_-MEM)
+   (the main *Edits tracking* sheet is read-only for the data team, so the
+   script can't live there). It must be set to **Anyone with the link → Viewer**
+   for the static dashboard to fetch its CSV. Follow the setup notes at the top of
    [`apps_script/funding_health.gs`](apps_script/funding_health.gs): paste it
    into the dashboard Sheet's Apps Script, enable the BigQuery service, run it
    once, then add a daily trigger.
