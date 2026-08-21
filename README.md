@@ -140,3 +140,24 @@ app/
   main.py      FastAPI app
 tests/       test_checks.py · test_bq_source.py
 ```
+
+## Developing locally (no BigQuery, no Sheet)
+
+The Funding Data tab works offline. Generate the sheet-shaped extracts from the
+local snapshot, then run the dashboard:
+
+```bash
+PYTHONPATH=. python scripts/export_sheet_csv.py
+```
+
+That writes `funding_health_summary.csv` and `funding_health_queue.csv` into
+Profile-edit-monitor's `public/dev-data/` using **exactly the schema the Apps
+Script writes into the Sheet** — same columns, same rule ids. While
+`GID_SUMMARY` / `GID_QUEUE` are blank the tab reads those files and shows a
+"Local dev data" badge, so sample numbers can never be mistaken for the real
+universe. Re-running appends a new dated row per rule, so the trend chart fills
+in locally the same way the daily trigger fills it in production.
+
+```bash
+cd ../Profile-edit-monitor && npm run dev   # → http://localhost:5173/#funding-data
+```

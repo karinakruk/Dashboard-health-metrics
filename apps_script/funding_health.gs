@@ -14,10 +14,14 @@
  *  1. Open the dashboard Sheet → Extensions → Apps Script; paste this file.
  *  2. Services → add "BigQuery API" (identifier: BigQuery).
  *  3. Set PROJECT_ID below.
- *  4. Run `refreshFundingHealth` once and grant the OAuth prompt.
- *  5. Triggers → add a daily time-based trigger for `refreshFundingHealth`.
- *  6. Note each created tab's gid from the URL and put them in
- *     src/FundingDataHealth.tsx.
+ *  4. Run `testBigQueryConnection` and grant the OAuth prompt. This proves
+ *     the Sheet↔BigQuery link works before any of the real SQL exists.
+ *  5. Once the scheduled query has created the result tables, confirm with
+ *     `checkResultTablesExist`.
+ *  6. Run `refreshFundingHealth` once — it creates and fills both tabs.
+ *  7. Triggers → add a daily time-based trigger for `refreshFundingHealth`.
+ *  8. Note each created tab's gid from the URL and put them in
+ *     src/FundingDataHealth.tsx (until then the tab reads local dev data).
  *
  * COST: this reads the small data_health.* result tables, not the raw
  * warehouse, so each refresh scans kilobytes. The expensive step is
@@ -58,6 +62,43 @@ var QUEUE_SQL =
   "  detail " +
   "FROM ranked WHERE rn <= " + QUEUE_LIMIT_PER_RULE + " " +
   "ORDER BY impact_usd DESC";
+
+/**
+ * SMOKE TEST — run this FIRST, before anything else works.
+ *
+ * Verifies only one thing: that this Sheet can reach BigQuery and write the
+ * answer back. It queries a literal, so it passes even before sql/10_issues.sql
+ * has ever run and regardless of what the real tables are called. That keeps
+ * "is the connection set up?" separate from "is the SQL right?".
+ *
+ * Expect a `_bq_smoke_test` tab containing one row. Delete the tab afterwards.
+ */
+function testBigQueryConnection() {
+  var probe = runQuery(
+    "SELECT 'connected' AS status, " +
+    "CURRENT_TIMESTAMP() AS server_time, " +
+    "SESSION_USER() AS running_as"
+  );
+  replaceRows('_bq_smoke_test', probe);
+  Logger.log('BigQuery reachable. %s', probe.rows[0].join(' | '));
+  return probe.rows[0];
+}
+
+/**
+ * Reports whether the tables this script depends on exist yet, without
+ * touching the raw warehouse. Run it after the scheduled query has been set up.
+ */
+function checkResultTablesExist() {
+  var found = runQuery(
+    "SELECT table_name FROM data_health.INFORMATION_SCHEMA.TABLES " +
+    "WHERE table_name IN ('issues','summary') ORDER BY table_name"
+  );
+  var names = found.rows.map(function (r) { return r[0]; });
+  Logger.log(names.length === 2
+    ? 'Ready: data_health.issues and data_health.summary both exist.'
+    : 'Not ready yet — found: [' + names.join(', ') + ']. Run sql/10_issues.sql and sql/20_summary.sql first.');
+  return names;
+}
 
 /** Entry point — point the daily trigger at this. */
 function refreshFundingHealth() {
