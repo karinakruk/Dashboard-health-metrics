@@ -14,11 +14,11 @@ Provenance / modelling notes (kept deliberately transparent):
   was named) come straight from Dealroom `entity_fundings`.
 * Non-USD round amounts are converted to USD with the fixed rates in ``FX``
   (approximate, good enough for the >=$10M anomaly thresholds).
-* ``verified`` is NOT exposed by the endpoints we used, so it is DERIVED with a
-  transparent completeness proxy (see ``derive_verified``): a round counts as
-  verified when it has a disclosed amount and either a named lead investor or a
-  stated valuation. Dealroom's own transaction index does expose a real
-  ``is_verified`` flag — swap the proxy for that field in production.
+* ``verified`` is Dealroom's LITERAL verification status for the round (the
+  "Unverified" label shown on the profile), sourced from the transactions index
+  via its ``is_verified`` filter — it is not inferred. Rounds whose status we
+  could not confirm are recorded as ``None`` (unknown) and are never flagged;
+  unknown is not the same as unverified.
 * ``hq_location`` is taken from the company profile text where stated. For Quibi
   and Venari Resources the structured HQ location is a genuine gap in the pulled
   data, so it is left null — which is exactly what the "big round, no location"
@@ -291,6 +291,34 @@ COMPANIES = [
 ]
 
 
+# Dealroom's literal verification status, read from the transactions index
+# (`is_verified` filter, queried 2026-08-21). Only rounds >=$10M were checked,
+# since that is the threshold the check uses.
+#
+# Confirmed to have NO unverified rounds >=$10M:
+CONFIRMED_ALL_VERIFIED = {
+    "revolut", "northvolt", "klarna", "mistral-ai", "helsing",
+    "monzo", "quibi", "venari-resources",
+}
+# Confirmed UNVERIFIED, as (company_id, round date, round type):
+UNVERIFIED_ROUNDS = {
+    ("klarna", "2025-09", "IPO"),
+}
+
+
+def verification_status(company_id: str, date: str, rtype: str | None,
+                        amount_usd: int) -> bool | None:
+    """Literal verified flag, or None when we could not confirm it."""
+    if (company_id, date, rtype) in UNVERIFIED_ROUNDS:
+        return False
+    # Below the check's threshold we never looked it up, so stay honest.
+    if amount_usd < 10_000_000:
+        return None
+    if company_id in CONFIRMED_ALL_VERIFIED:
+        return True
+    return None
+
+
 def to_records(company: dict) -> dict:
     rounds = [
         {
@@ -299,6 +327,7 @@ def to_records(company: dict) -> dict:
             "amount_usd": amount,
             "valuation_usd": valuation,
             "has_lead": has_lead,
+            "verified": verification_status(company["id"], date, rtype, amount),
         }
         for (date, rtype, amount, valuation, has_lead) in company["rounds"]
     ]

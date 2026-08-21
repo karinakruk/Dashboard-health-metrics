@@ -23,16 +23,19 @@ class Round:
     amount_usd: int
     valuation_usd: int | None
     has_lead: bool
+    # Dealroom's literal verification status for this round, as shown on the
+    # profile ("Series A / Unverified"). None means we do not know it — which is
+    # NOT the same as unverified, so unknown rounds are never flagged.
+    verified: bool | None = None
 
     @property
     def is_big(self) -> bool:
         return self.amount_usd >= BIG_ROUND_THRESHOLD_USD
 
     @property
-    def is_verified(self) -> bool:
-        """Completeness proxy for a verified round: a disclosed amount plus at
-        least one corroborating signal (a named lead investor or a valuation)."""
-        return self.amount_usd > 0 and (self.has_lead or self.valuation_usd is not None)
+    def is_unverified(self) -> bool:
+        """True only when the round is explicitly marked unverified."""
+        return self.verified is False
 
     @property
     def has_type(self) -> bool:
@@ -85,6 +88,7 @@ def _round_from_dict(d: dict) -> Round:
         amount_usd=d.get("amount_usd", 0),
         valuation_usd=d.get("valuation_usd"),
         has_lead=d.get("has_lead", False),
+        verified=d.get("verified"),
     )
 
 

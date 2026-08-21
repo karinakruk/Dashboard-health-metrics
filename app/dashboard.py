@@ -10,6 +10,7 @@ from __future__ import annotations
 import html
 
 from .checks import CRITICAL, SERIOUS, WARNING, Report
+from .fixqueue import QueueItem
 from .models import Snapshot
 
 # Status-palette roles (fixed, never themed).
@@ -143,6 +144,67 @@ def _issue_table(result, url_by_id: dict[str, str]) -> str:
     </div>"""
 
 
+QUEUE_ROWS_SHOWN = 50
+
+
+def _fix_queue_section(queue: list[QueueItem], total_issues: int) -> str:
+    """The worklist: what to fix first, ranked by money at stake."""
+
+    if not queue:
+        return '<p class="empty">Nothing to fix. ✓</p>'
+
+    shown = queue[:QUEUE_ROWS_SHOWN]
+    rows = ""
+    for i in shown:
+        color = SEVERITY_COLOR[i.severity]
+        company = (
+            f'<a href="{esc(i.company_url)}" target="_blank" rel="noopener noreferrer">'
+            f'{esc(i.company_name)}<span class="ext"> ↗</span></a>'
+            if i.company_url else esc(i.company_name)
+        )
+        where = esc(f"{i.round_type} {i.round_date}") if i.round_date else '<span class="muted">company-level</span>'
+        rows += f"""
+        <tr>
+          <td class="num muted">{i.rank}</td>
+          <td class="co">{company}</td>
+          <td><span class="sev-dot" style="background:{color}"></span>{esc(i.rule_title)}</td>
+          <td>{where}</td>
+          <td class="num impact">{fmt_usd(i.impact_usd)}</td>
+        </tr>"""
+
+    more = ""
+    if total_issues > len(shown):
+        more = (
+            f'<p class="more">Showing the top {len(shown)} of '
+            f'<strong>{fmt_int(total_issues)}</strong> issues, ranked by value at stake. '
+            f'<a href="/api/fixqueue.csv">Download the full queue as CSV ↓</a></p>'
+        )
+
+    return f"""
+    <div class="card queue">
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th class="num">#</th><th>Company</th><th>Issue</th>
+            <th>Where</th><th class="num">Value at stake</th>
+          </tr></thead>
+          <tbody>{rows}</tbody>
+        </table>
+      </div>
+      {more}
+    </div>"""
+
+
+def _truncation_note(result) -> str:
+    if not getattr(result, "is_truncated", False):
+        return ""
+    return (
+        f'<p class="check-q muted">Showing {len(result.issues)} highest-impact of '
+        f'{fmt_int(result.count)} — the full set stays in BigQuery '
+        f'(<a href="/api/fixqueue.csv">CSV</a>).</p>'
+    )
+
+
 def _check_sections(report: Report, url_by_id: dict[str, str]) -> str:
     sections = ""
     for result in report.results:
@@ -157,6 +219,7 @@ def _check_sections(report: Report, url_by_id: dict[str, str]) -> str:
             <span class="check-count">{result.count}</span>
           </summary>
           <p class="check-q">{esc(meta.question)}</p>
+          {_truncation_note(result)}
           {_issue_table(result, url_by_id)}
         </details>"""
     return sections
@@ -243,6 +306,11 @@ td.co a .ext { color:var(--muted); font-weight:400; }
 .rt { font-weight:600; }
 .muted { color:var(--muted); }
 .empty { color:var(--muted); font-size:13px; padding:16px 20px; margin:0; }
+.queue { padding:0; }
+.sev-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:8px; }
+td.impact { font-weight:700; }
+.more { font-size:12px; color:var(--ink2); padding:12px 20px; margin:0; border-top:1px solid var(--border); }
+.more a { font-weight:600; }
 footer { margin-top:40px; color:var(--muted); font-size:12px; line-height:1.6; }
 footer code { background:var(--track); padding:1px 5px; border-radius:4px; }
 """
@@ -259,7 +327,12 @@ THEME_JS = """
 """
 
 
-def render_page(snapshot: Snapshot, report: Report) -> str:
+def render_page(
+    snapshot: Snapshot,
+    report: Report,
+    queue: list[QueueItem] | None = None,
+    source_label: str | None = None,
+) -> str:
     score = report.health_score
     band = _score_band(score)
     band_color = SEVERITY_COLOR[band]
@@ -281,7 +354,7 @@ def render_page(snapshot: Snapshot, report: Report) -> str:
     <div>
       <h1>Funding Data Health</h1>
       <p class="subtitle">Automated quality checks over Dealroom funding data.</p>
-      <p class="source">Source: {esc(snapshot.source)} · snapshot {esc(snapshot.pulled_at)}</p>
+      <p class="source">{esc(source_label or f"Source: {snapshot.source} · snapshot {snapshot.pulled_at}")}</p>
     </div>
     <button id="themeBtn" class="theme-btn">☾ Dark</button>
   </header>
@@ -296,20 +369,25 @@ def render_page(snapshot: Snapshot, report: Report) -> str:
 
   {_stat_tiles(snapshot, report)}
 
+  <h2>Fix queue &mdash; highest value at stake first</h2>
+  {_fix_queue_section(queue or [], report.total_issues)}
+
   <h2>Issues by check</h2>
   {_overview_chart(report)}
 
-  <h2>Findings</h2>
+  <h2>Findings by check</h2>
   {_check_sections(report, url_by_id)}
 
   <footer>
-    <p><strong>Methodology.</strong> Data-health checks run over a real Dealroom
-    snapshot (<code>analyze_company</code> + <code>entity_fundings</code>, pulled
-    {esc(snapshot.pulled_at)}). Non-USD amounts converted to USD at fixed rates.
-    A round is treated as <em>verified</em> when it has a disclosed amount plus a
-    lead investor or a stated valuation (a completeness proxy for Dealroom's
-    internal verified flag). "Big" rounds are ≥ $10M. Where a company's HQ
-    location or round type is null, that is a genuine gap in the pulled data.</p>
+    <p><strong>Methodology.</strong> "Big" rounds are ≥ $10M. Verification is
+    <em>read, not inferred</em>: a round is flagged only when it carries Dealroom's
+    explicit <code>Unverified</code> status — unknown status is never reported as a
+    problem, and there is no round-type carve-out (an unverified $15B acquisition is
+    still an unverified big round). The fix queue is ranked by value at stake and
+    capped; where rows are truncated the true count is shown beside them and the
+    full set is available as CSV. Non-USD amounts are converted at fixed
+    approximate rates. Null HQ locations and null round types are genuine gaps in
+    the source — which is what those checks exist to surface.</p>
   </footer>
 </div>
 <script>{THEME_JS}</script>

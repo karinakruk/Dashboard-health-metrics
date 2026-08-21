@@ -38,9 +38,9 @@ def company(**kw) -> Company:
     return Company(**defaults)
 
 
-def rnd(date, rtype, amount, valuation=None, lead=False) -> Round:
+def rnd(date, rtype, amount, valuation=None, lead=False, verified=None) -> Round:
     return Round(date=date, round_type=rtype, amount_usd=amount,
-                 valuation_usd=valuation, has_lead=lead)
+                 valuation_usd=valuation, has_lead=lead, verified=verified)
 
 
 # --- stage classification --------------------------------------------------- #
@@ -55,22 +55,42 @@ def test_stage_tiers():
 
 # --- check 1: big rounds not verified --------------------------------------- #
 
-def test_big_unverified_flags_big_round_without_lead_or_valuation():
-    c = company(rounds=[rnd("2021-01", "SERIES B", 50_000_000)])
+def test_big_unverified_flags_explicitly_unverified_round():
+    c = company(rounds=[rnd("2021-01", "SERIES B", 50_000_000, verified=False)])
     assert [i.company_id for i in check_big_unverified([c])] == ["x"]
 
 
-def test_big_unverified_passes_when_valuation_present():
-    c = company(rounds=[rnd("2021-01", "SERIES B", 50_000_000, valuation=200_000_000)])
+def test_big_unverified_passes_when_verified():
+    c = company(rounds=[rnd("2021-01", "SERIES B", 50_000_000, verified=True)])
     assert list(check_big_unverified([c])) == []
 
 
-def test_big_unverified_ignores_small_rounds_and_debt():
+def test_unknown_verification_is_not_treated_as_unverified():
+    """None means "we don't know", which must never be reported as a problem."""
+    c = company(rounds=[rnd("2021-01", "SERIES B", 50_000_000, verified=None)])
+    assert list(check_big_unverified([c])) == []
+
+
+def test_big_unverified_ignores_small_rounds():
+    c = company(rounds=[rnd("2021-01", "SEED", 2_000_000, verified=False)])
+    assert list(check_big_unverified([c])) == []
+
+
+def test_big_unverified_has_no_instrument_carve_out():
+    """An unverified $500M debt round is still an unverified big round."""
     c = company(rounds=[
-        rnd("2021-01", "SEED", 2_000_000),          # below $10M threshold
-        rnd("2021-02", "DEBT", 500_000_000),         # non-priced instrument
+        rnd("2021-02", "DEBT", 500_000_000, verified=False),
+        rnd("2021-03", "ACQUISITION", 15_800_000_000, verified=False),
     ])
-    assert list(check_big_unverified([c])) == []
+    assert len(list(check_big_unverified([c]))) == 2
+
+
+def test_lead_and_valuation_no_longer_affect_verification():
+    """Verification is read, not inferred: a lead investor doesn't verify a round."""
+    c = company(rounds=[
+        rnd("2021-01", "SERIES B", 50_000_000, valuation=9e9, lead=True, verified=False),
+    ])
+    assert len(list(check_big_unverified([c]))) == 1
 
 
 # --- check 2: missing round type -------------------------------------------- #

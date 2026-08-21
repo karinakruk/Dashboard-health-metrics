@@ -102,34 +102,21 @@ class CheckMeta:
 # --------------------------------------------------------------------------- #
 
 
-# Instruments that legitimately lack a lead investor / priced valuation, so a
-# "no lead and no valuation" signal is not a verification gap for them.
-NON_PRICED_TYPES = {
-    "DEBT",
-    "POST IPO DEBT",
-    "POST IPO CONVERTIBLE",
-    "GRANT",
-    "SUPPORT PROGRAM",
-    "BANKRUPTCY",
-    "ACQUISITION",
-    "MERGER",
-}
-
-
-def _is_priced(round_: Round) -> bool:
-    rtype = (round_.round_type or "").strip().upper()
-    return rtype not in NON_PRICED_TYPES
-
-
 def check_big_unverified(companies: Iterable[Company]) -> Iterator[Issue]:
+    """Big rounds carrying Dealroom's literal "Unverified" status.
+
+    This reads the verification flag as recorded — it does not infer it. Every
+    instrument counts: an unverified $15B acquisition is still an unverified big
+    round, so there is no round-type carve-out.
+    """
     for c in companies:
         for r in c.rounds:
-            if r.is_big and _is_priced(r) and not r.is_verified:
+            if r.is_big and r.is_unverified:
                 yield Issue(
                     check_id="big_unverified",
                     company_id=c.id,
                     company_name=c.name,
-                    detail="Big round is unverified (no lead investor and no valuation).",
+                    detail="Round is marked Unverified in Dealroom.",
                     round_date=r.date,
                     round_type=r.round_type,
                     amount_usd=r.amount_usd,
@@ -246,7 +233,7 @@ ALL_CHECKS: list[tuple[CheckMeta, object]] = [
         CheckMeta(
             "big_unverified",
             "Big rounds not verified",
-            "Rounds ≥ $10M that lack verification (no lead investor, no valuation).",
+            "Rounds ≥ $10M carrying Dealroom's Unverified status.",
             SERIOUS,
         ),
         check_big_unverified,
@@ -305,10 +292,19 @@ _SEVERITY_WEIGHT = {CRITICAL: 3, SERIOUS: 2, WARNING: 1}
 class CheckResult:
     meta: CheckMeta
     issues: list[Issue] = field(default_factory=list)
+    # At global scope a rule can flag far more rows than we ship to the browser.
+    # `total_count` is the true number from the warehouse; `issues` may hold only
+    # the top slice by impact. None means "issues is the complete set".
+    total_count: int | None = None
 
     @property
     def count(self) -> int:
-        return len(self.issues)
+        """The true number of issues, which may exceed the rows displayed."""
+        return self.total_count if self.total_count is not None else len(self.issues)
+
+    @property
+    def is_truncated(self) -> bool:
+        return self.total_count is not None and self.total_count > len(self.issues)
 
 
 @dataclass
