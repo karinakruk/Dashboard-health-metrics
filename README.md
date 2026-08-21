@@ -22,23 +22,28 @@ unverified big round.
 
 ## Architecture
 
-The checks run **in BigQuery**; the dashboard only ever reads a small exported
-file. That keeps serving free and credential-less no matter how large the
-universe is.
+The checks run **in BigQuery**. A daily Apps Script lands the results in the
+Dealroom dashboard Google Sheet, and the **Funding Data tab in
+[Profile-edit-monitor](https://github.com/dealroom-ai/Profile-edit-monitor)**
+reads that sheet as published CSV. That is the same pattern every other tab in
+that dashboard already uses — no backend, no build step, no credentials in the
+client.
 
 ```
 BigQuery (raw)
   └── sql/10_issues.sql    six checks → data_health.issues   (one row per issue)
   └── sql/20_summary.sql   rollups    → data_health.summary / _by_country / runs
-        └── scripts/bq_refresh.sh  → data/bq_export.json  (summary + top-N queue)
-              └── FastAPI dashboard reads that JSON. No warehouse access at serve time.
+        └── apps_script/funding_health.gs   (daily trigger)
+              → Sheet tabs: funding_health_summary (appends, gives the trend)
+                            funding_health_queue   (replaced, top-N worklist)
+                    └── Profile-edit-monitor → src/FundingDataHealth.tsx (#funding-data)
 ```
 
 **Scale matters here.** At global scope a single rule flags tens of thousands of
-records (e.g. ~14,700 transactions are ≥$10M and unverified), so the dashboard
-never tries to render them all. It shows: true counts, aggregates by country, and
-the **top-N highest-impact rows** — with the full set one CSV away. Where rows are
-truncated the UI says so explicitly rather than implying the list is complete.
+records (e.g. ~14,700 rounds are ≥$10M and literally unverified), so nothing
+tries to render them all. The sheet carries the summary plus the top-N rows per
+rule; the tab reports the *true* count from the summary while displaying only
+that slice, and says so rather than implying the list is complete.
 
 ### Setting it up
 
@@ -56,27 +61,39 @@ gcloud auth login
 ./scripts/bq_dry_run.sh
 ```
 
-4. **Refresh** — run the checks, roll up, and export:
+4. **Schedule the checks** — run `sql/10_issues.sql` and `sql/20_summary.sql`
+   as a BigQuery **scheduled query** (daily). These are the only steps that
+   touch the raw warehouse.
+5. **Land them in the Sheet** — follow the setup notes at the top of
+   [`apps_script/funding_health.gs`](apps_script/funding_health.gs): paste it
+   into the dashboard Sheet's Apps Script, enable the BigQuery service, run it
+   once, then add a daily trigger.
+6. **Wire the tab** — copy each created tab's `gid` from the Sheet URL into
+   `GID_SUMMARY` / `GID_QUEUE` in `src/FundingDataHealth.tsx` in
+   Profile-edit-monitor. Until then the tab renders a note saying exactly that.
 
-```bash
-./scripts/bq_refresh.sh
-```
+Because on-demand BigQuery bills per *byte scanned* and the checks touch only a
+handful of columns once per day, cost stays low. The Apps Script reads the small
+`data_health.*` result tables (kilobytes), and dashboard page views cost nothing
+at all — they only fetch a published CSV.
 
-Schedule step 4 (BigQuery scheduled query, cron, or Cloud Run job) and the
-dashboard stays current. Because on-demand BigQuery bills per *byte scanned* and
-the checks touch only a handful of columns once per refresh, cost stays low —
-dashboard page views cost nothing at all.
+> **Note on the Sheet:** a published CSV is readable by anyone with the link.
+> That is already how the other dashboard tabs work, so this adds no new
+> exposure — but the queue does contain company names, so keep the sheet on the
+> same sharing setting as the rest of the dashboard data.
 
-## Run the dashboard
+## Local dev harness (not the product)
+
+The production surface is the Funding Data tab in Profile-edit-monitor. This
+repo also carries a small FastAPI app that renders the same checks locally —
+useful for iterating on rule logic without BigQuery access, and for the CSV
+export. It is a dev tool, not something to deploy.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
-
-If `data/bq_export.json` is present it is used; otherwise the app falls back to
-the bundled snapshot, so it runs with no warehouse access.
 
 Endpoints: `/` (dashboard), `/api/report` (JSON), `/api/fixqueue.csv` (full
 queue), `/healthz`, `/docs`.
@@ -112,6 +129,7 @@ provenance of every field. Notes:
 
 ```
 sql/         00_schema_check · 10_issues · 20_summary   (the checks, in SQL)
+apps_script/ funding_health.gs   (BigQuery → Sheet, daily trigger)
 scripts/     bq_dry_run.sh · bq_refresh.sh · build_snapshot.py
 app/
   models.py    Company / Round dataclasses + snapshot loader (pure)
