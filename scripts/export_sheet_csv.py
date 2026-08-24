@@ -5,7 +5,12 @@ dashboard Sheet, but from the local snapshot — so the Profile-edit-monitor tab
 can be developed with no BigQuery access, no Apps Script and no published
 Sheet, and still exercise the real rule logic and the real column names.
 
-    python scripts/export_sheet_csv.py [--out DIR] [--run-date YYYY-MM-DD]
+    PYTHONPATH=. python scripts/export_sheet_csv.py               # local snapshot
+    PYTHONPATH=. python scripts/export_sheet_csv.py --from-bigquery  # real global data
+
+With --from-bigquery it reads the materialized data_health.* tables through the
+bq CLI, so the local dashboard shows the true global numbers without any Sheet,
+Apps Script or OAuth in the loop. Requires `gcloud auth login`.
 
 Default output is Profile-edit-monitor's dev-data folder if it sits alongside
 this repo, otherwise ./dev-data.
@@ -20,6 +25,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
+import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -40,6 +47,70 @@ QUEUE_HEADERS = [
 ]
 
 
+PROJECT = "omega-dahlia-347111"
+LOCATION = "europe-west4"
+
+SUMMARY_SQL = """
+SELECT rule_id, severity, issue_count, companies_affected,
+       CAST(IFNULL(impact_usd_total, 0) AS INT64) AS impact_usd_total
+FROM data_health.summary ORDER BY issue_count DESC
+"""
+
+QUEUE_SQL = """
+WITH ranked AS (
+  SELECT *, ROW_NUMBER() OVER (
+    PARTITION BY rule_id ORDER BY impact_usd DESC NULLS LAST) AS rn
+  FROM data_health.issues)
+SELECT rule_id, severity, company_name, IFNULL(company_url,'') AS company_url,
+       IFNULL(hq_country,'') AS hq_country, IFNULL(round_date,'') AS round_date,
+       IFNULL(round_type,'') AS round_type,
+       CAST(IFNULL(amount_usd,0) AS INT64) AS amount_usd,
+       CAST(IFNULL(impact_usd,0) AS INT64) AS impact_usd, detail
+FROM ranked WHERE rn <= {limit}
+ORDER BY impact_usd DESC
+"""
+
+
+def bq_json(sql: str) -> list[dict]:
+    """Run a query through the bq CLI and return rows as dicts."""
+    out = subprocess.run(
+        ["bq", f"--project_id={PROJECT}", f"--location={LOCATION}", "query",
+         "--use_legacy_sql=false", "--format=json", "--max_rows=100000", sql],
+        capture_output=True, text=True,
+    )
+    if out.returncode != 0:
+        raise SystemExit(
+            "bq failed — is `gcloud auth login` current?\n" + out.stderr[-800:])
+    return json.loads(out.stdout or "[]")
+
+
+def from_bigquery(out: Path, run_date: str, limit: int) -> tuple[int, int]:
+    """Write both CSVs from the materialized data_health.* tables."""
+    summary = bq_json(SUMMARY_SQL)
+    queue = bq_json(QUEUE_SQL.format(limit=limit))
+
+    summary_path = out / SUMMARY_FILE
+    existing: list[dict] = []
+    if summary_path.exists():
+        with summary_path.open() as fh:
+            existing = [r for r in csv.DictReader(fh)
+                        if r.get("run_date") != run_date]
+    with summary_path.open("w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=SUMMARY_HEADERS)
+        w.writeheader()
+        w.writerows(existing)
+        for r in summary:
+            w.writerow({"run_date": run_date, **{k: r[k] for k in SUMMARY_HEADERS[1:]}})
+
+    with (out / QUEUE_FILE).open("w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=QUEUE_HEADERS)
+        w.writeheader()
+        for r in queue:
+            w.writerow({"run_date": run_date, **{k: r[k] for k in QUEUE_HEADERS[1:]}})
+
+    return len(summary), len(queue)
+
+
 def default_out() -> Path:
     sibling = Path(__file__).resolve().parent.parent.parent / "Profile-edit-monitor"
     if sibling.is_dir():
@@ -51,10 +122,21 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--run-date", default=date.today().isoformat())
+    ap.add_argument("--from-bigquery", action="store_true",
+                    help="read the real data_health.* tables instead of the local snapshot")
+    ap.add_argument("--limit", type=int, default=300,
+                    help="rows per rule in the queue (default 300)")
     args = ap.parse_args()
 
     out = args.out or default_out()
     out.mkdir(parents=True, exist_ok=True)
+
+    if args.from_bigquery:
+        n_sum, n_queue = from_bigquery(out, args.run_date, args.limit)
+        print(f"Wrote {out / SUMMARY_FILE}  ({n_sum} rules)")
+        print(f"Wrote {out / QUEUE_FILE}  ({n_queue} rows, top {args.limit} per rule)")
+        print("\nReal global data — the tab reads it while the sheet gids are blank.")
+        return
 
     snapshot = load_snapshot()
     report = run_checks(snapshot.companies)

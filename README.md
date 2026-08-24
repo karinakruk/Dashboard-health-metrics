@@ -1,10 +1,15 @@
-# Funding Data Health
+# Data Health
 
-Automated **data-health checks** over Dealroom funding data, with a FastAPI
-dashboard that surfaces an actionable fix queue — what to correct first, ranked
-by the money at stake.
+Automated **data-quality checks** over Dealroom data, surfacing an actionable fix
+queue — what to correct first, ranked by the value at stake. Results are shown in
+the **Data Health** tab of
+[Profile-edit-monitor](https://github.com/dealroom-ai/Profile-edit-monitor).
 
-## What it checks
+**Funding is the first domain covered**; the pipeline is built so further domains
+(people, tagging, locations, …) drop in alongside it — each contributes its own
+rules to the same `data_health.issues` table and the same fix queue.
+
+## What it checks — funding
 
 | # | Check | Why it matters |
 |---|-------|----------------|
@@ -23,7 +28,7 @@ unverified big round.
 ## Architecture
 
 The checks run **in BigQuery**. A daily Apps Script lands the results in the
-Dealroom dashboard Google Sheet, and the **Funding Data tab in
+data-health Google Sheet, and the **Data Health tab in
 [Profile-edit-monitor](https://github.com/dealroom-ai/Profile-edit-monitor)**
 reads that sheet as published CSV. That is the same pattern every other tab in
 that dashboard already uses — no backend, no build step, no credentials in the

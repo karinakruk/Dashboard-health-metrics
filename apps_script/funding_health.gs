@@ -1,8 +1,8 @@
 /**
- * Funding data-health: BigQuery → Google Sheet.
+ * Data health — funding domain: BigQuery → Google Sheet.
  *
  * Runs the materialized check results out of BigQuery and writes them into the
- * dashboard sheet, which Profile-edit-monitor reads as published CSV. This is
+ * data-health sheet, which Profile-edit-monitor reads as published CSV. This is
  * the whole pipeline — no server, no build step, no credentials in the client.
  *
  *   sql/10_issues.sql  ─┐
@@ -11,7 +11,7 @@
  *                                        Profile-edit-monitor fetches CSV
  *
  * SETUP
- *  1. Open the funding-health Sheet:
+ *  1. Open the Data Health Sheet:
  *       https://docs.google.com/spreadsheets/d/1geXbBHZO4HXuoJbO8CkwBJlz5nbUzFaMqQEDBu_-MEM
  *     → Extensions → Apps Script; paste this file.
  *     (Dedicated sheet: the main 'Edits tracking' sheet is read-only
