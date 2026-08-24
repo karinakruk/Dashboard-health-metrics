@@ -70,11 +70,20 @@ BEGIN
       -- The company's LAST transaction, whatever its type. Deliberately not
       -- restricted to funding rounds: the app's last_funding_round filter offers
       -- ACQUISITION as a value, so it considers all transactions.
+      --
+      -- The year comes from MAX(funding.year), NOT from
+      -- entities.last_funding_round_id: that pointer does not reliably reference
+      -- the most recent transaction, and trusting it undercounted this check by
+      -- roughly a third (81 rows instead of 115).
       lr.round                               AS last_round_type,
-      CAST(lr.year AS INT64)                 AS last_funding_year
+      CAST(ly.last_funding_year AS INT64)    AS last_funding_year
     FROM dealroom_intelligence.entities e
     LEFT JOIN dealroom_intelligence.funding lr
       ON lr.id = e.last_funding_round_id
+    LEFT JOIN (
+      SELECT entity_id, MAX(year) AS last_funding_year
+      FROM dealroom_intelligence.funding GROUP BY entity_id
+    ) ly ON ly.entity_id = e.id
     WHERE e.entity_type = 'organization'
   ),
   rounds AS (
@@ -196,7 +205,7 @@ BEGIN
   --      launch_year_min/anyof_1990
   --    The exclusions matter: mature companies and post-acquisition shells
   --    legitimately run on few staff, and pre-1990 launches are mostly bad data.
-  --    Verified at 81 companies.
+  --    Verified at 115 companies (the app reports 137 — see README).
   high_funding_few_employees AS (
     SELECT
       'high_funding_few_employees', 'serious',
