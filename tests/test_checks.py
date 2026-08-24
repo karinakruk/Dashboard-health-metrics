@@ -5,7 +5,7 @@ pinned by construction, not by whatever the live data happens to contain.
 """
 
 from app.checks import (
-    check_big_round_missing_location,
+    check_missing_location,
     check_big_unverified,
     check_high_funding_few_employees,
     check_missing_round_type,
@@ -93,12 +93,12 @@ def test_missing_round_type_flags_null_and_not_set():
 
 def test_big_round_no_location_flags_when_location_missing():
     c = company(hq_location=None, rounds=[rnd("2020-01", "SERIES B", 50_000_000, lead=True)])
-    assert [i.company_id for i in check_big_round_missing_location([c])] == ["x"]
+    assert [i.company_id for i in check_missing_location([c])] == ["x"]
 
 
 def test_big_round_with_location_is_clean():
     c = company(hq_location="Paris, France", rounds=[rnd("2020-01", "SERIES B", 50_000_000)])
-    assert list(check_big_round_missing_location([c])) == []
+    assert list(check_missing_location([c])) == []
 
 
 # --- check 6: high funding, few employees ----------------------------------- #
@@ -126,7 +126,7 @@ def test_snapshot_runs_and_every_check_fires():
     assert report.total_issues > 0
     # The curated snapshot makes every check fire, except the city split, which
     # needs structured city data the snapshot does not carry.
-    silent = {"big_round_missing_city"}
+    silent = {"missing_city"}
     for r in report.results:
         if r.meta.id in silent:
             assert r.count == 0, f"{r.meta.id} unexpectedly fired locally"

@@ -13,6 +13,7 @@
 
 DECLARE big_round_threshold_usd INT64   DEFAULT 10000000;
 DECLARE high_funding_usd        INT64   DEFAULT 25000000;
+DECLARE recent_funding_year     INT64   DEFAULT 2025;  -- 'recently funded', matches last_funding_year_min in the app link
 DECLARE employee_ceiling        INT64   DEFAULT 10;  -- inclusive, matching the app's {1, 2-10} buckets
 
 CREATE SCHEMA IF NOT EXISTS data_health;
@@ -89,16 +90,6 @@ company_latest_year AS (
   FROM r GROUP BY company_id
 ),
 
-company_big_rounds AS (
-  SELECT
-    company_id,
-    COUNT(*)         AS big_round_count,
-    MAX(amount_usd)  AS biggest_amount_usd
-  FROM r
-  WHERE amount_usd >= big_round_threshold_usd
-  GROUP BY company_id
-),
-
 -- =========================== the five checks ==============================
 
 -- 1. Big rounds (>=$10M) carrying the literal "Unverified" status.
@@ -132,38 +123,41 @@ missing_round_type AS (
   WHERE r.rtype_norm IN ('', 'NOT SET')
 ),
 
--- 5a. Big rounds where the country is known but the city is missing.
---     Quick fix: the ecosystem is already identifiable, the city just needs adding.
-big_round_missing_city AS (
+-- 5a. Recently funded companies whose country is known but city is not.
+--     Quick fix: the ecosystem is already identifiable.
+missing_city AS (
   SELECT
-    'big_round_missing_city', 'warning',
+    'missing_city', 'warning',
     c.company_id, c.company_name, c.company_url, c.hq_country,
-    CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS STRING), b.biggest_amount_usd,
-    b.biggest_amount_usd,
-    CONCAT(CAST(b.big_round_count AS STRING),
-           ' big round(s); country is set but the city is missing.'),
+    CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS STRING), c.total_funding_usd,
+    c.total_funding_usd,
+    'Funded recently; country is set but the city is missing.',
     y.latest_round_year
-  FROM company_big_rounds b
-  JOIN companies c USING (company_id)
-  LEFT JOIN company_latest_year y USING (company_id)
-  WHERE NOT c.has_location AND c.has_country
+  FROM companies c
+  JOIN company_latest_year y USING (company_id)
+  WHERE y.latest_round_year >= recent_funding_year
+    AND c.has_country AND NOT c.has_location
 ),
 
--- 5b. Big rounds with neither country nor city — the amount cannot reach any
---     ecosystem at all. Needs research, so it is the more serious of the two.
-big_round_missing_location AS (
+-- 5b. Recently funded companies with no country at all, so the amount cannot
+--     reach any ecosystem. Gated on recency rather than round size, matching
+--     the app filter this links to:
+--       companies/f/last_funding_year_min/anyof_<year>/regions/not_Global
+--     `regions/not_Global` is exactly "has no country": every located company
+--     carries Global in its country_region hierarchy. Verified — both give
+--     1,257,922 overall and 56 for 2025+.
+missing_location AS (
   SELECT
-    'big_round_missing_location', 'serious',
+    'missing_location', 'serious',
     c.company_id, c.company_name, c.company_url, c.hq_country,
-    CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS STRING), b.biggest_amount_usd,
-    b.biggest_amount_usd,
-    CONCAT(CAST(b.big_round_count AS STRING),
-           ' big round(s) with no country or city — the amount cannot flow into an ecosystem value.'),
+    CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS STRING), c.total_funding_usd,
+    c.total_funding_usd,
+    'Funded recently but has no country or city — the amount cannot flow into an ecosystem value.',
     y.latest_round_year
-  FROM company_big_rounds b
-  JOIN companies c USING (company_id)
-  LEFT JOIN company_latest_year y USING (company_id)
-  WHERE NOT c.has_country
+  FROM companies c
+  JOIN company_latest_year y USING (company_id)
+  WHERE y.latest_round_year >= recent_funding_year
+    AND NOT c.has_country
 ),
 
 -- 6. High funding but 10 or fewer employees.
@@ -198,8 +192,8 @@ SELECT
 FROM (
   SELECT * FROM big_unverified
   UNION ALL SELECT * FROM missing_round_type
-  UNION ALL SELECT * FROM big_round_missing_city
-  UNION ALL SELECT * FROM big_round_missing_location
+  UNION ALL SELECT * FROM missing_city
+  UNION ALL SELECT * FROM missing_location
   UNION ALL SELECT * FROM high_funding_few_employees
 );
 -- No ORDER BY here: a clustered CTAS cannot be ordered, and clustering by

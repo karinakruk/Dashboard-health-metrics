@@ -137,7 +137,7 @@ def check_missing_round_type(companies: Iterable[Company]) -> Iterator[Issue]:
                 )
 
 
-def check_big_round_missing_city(companies: Iterable[Company]) -> Iterator[Issue]:
+def check_missing_city(companies: Iterable[Company]) -> Iterator[Issue]:
     """Big rounds where the country is known but the city is not.
 
     The warehouse splits the location gap in two, because a missing city on a
@@ -152,7 +152,7 @@ def check_big_round_missing_city(companies: Iterable[Company]) -> Iterator[Issue
     return iter(())
 
 
-def check_big_round_missing_location(companies: Iterable[Company]) -> Iterator[Issue]:
+def check_missing_location(companies: Iterable[Company]) -> Iterator[Issue]:
     for c in companies:
         if c.has_location:
             continue
@@ -161,7 +161,7 @@ def check_big_round_missing_location(companies: Iterable[Company]) -> Iterator[I
             continue
         largest = max(big, key=lambda r: r.amount_usd)
         yield Issue(
-            check_id="big_round_missing_location",
+            check_id="missing_location",
             company_id=c.id,
             company_name=c.name,
             detail=(
@@ -221,21 +221,21 @@ ALL_CHECKS: list[tuple[CheckMeta, object]] = [
     ),
     (
         CheckMeta(
-            "big_round_missing_city",
+            "missing_city",
             "City missing",
-            "Big rounds where the country is known but the city is not.",
+            "Funded recently; country known but city missing.",
             WARNING,
         ),
-        check_big_round_missing_city,
+        check_missing_city,
     ),
     (
         CheckMeta(
-            "big_round_missing_location",
-            "Big rounds without a location",
-            "Big rounds on profiles with no country or city.",
+            "missing_location",
+            "No location",
+            "Funded recently but has no country or city.",
             SERIOUS,
         ),
-        check_big_round_missing_location,
+        check_missing_location,
     ),
     (
         CheckMeta(
