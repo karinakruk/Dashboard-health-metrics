@@ -23,9 +23,12 @@
  *  5. Once the scheduled query has created the result tables, confirm with
  *     `checkResultTablesExist`.
  *  6. Run `refreshFundingHealth` once — it creates and fills both tabs.
- *  7. Triggers → add a daily time-based trigger for `refreshFundingHealth`.
- *  8. Note each created tab's gid from the URL and put them in
- *     src/FundingDataHealth.tsx (until then the tab reads local dev data).
+ *  7. Run sql/30_rebuild_procedure.sql ONCE in the BigQuery console to create
+ *     the data_health.rebuild() procedure.
+ *  8. Triggers → add a daily time-based trigger for `dailyDataHealthRun`
+ *     (NOT refreshFundingHealth — the combined runner recomputes the checks
+ *     first, so the Sheet is never refreshed from stale tables).
+ *  9. The dashboard tab reads the tabs by name, so there is nothing to copy.
  *
  * COST: this reads the small data_health.* result tables, not the raw
  * warehouse, so each refresh scans kilobytes. The expensive step is
@@ -105,7 +108,54 @@ function checkResultTablesExist() {
   return names;
 }
 
-/** Entry point — point the daily trigger at this. */
+/**
+ * STAGE A — recompute the checks in BigQuery.
+ *
+ * Calls the data_health.rebuild() stored procedure, created by running
+ * sql/30_rebuild_procedure.sql once in the BigQuery console. The SQL lives in
+ * BigQuery, not in this file, so there is only one definition of the rules.
+ */
+function rebuildDataHealthTables() {
+  runStatement('CALL data_health.rebuild()');
+  Logger.log('BigQuery tables rebuilt.');
+}
+
+/**
+ * DAILY ENTRY POINT — point the trigger at this, not at refreshFundingHealth.
+ *
+ * Recomputes the checks, then copies the results into the Sheet. Doing both in
+ * one function guarantees the order: the Sheet can never be refreshed from
+ * tables that a separate schedule has not rebuilt yet.
+ */
+function dailyDataHealthRun() {
+  rebuildDataHealthTables();
+  refreshFundingHealth();
+}
+
+/**
+ * Execute a statement that returns no rows (DDL, DML, CALL).
+ *
+ * Kept separate from runQuery because scripts and DDL come back without a
+ * schema, which the row-reading path would choke on.
+ */
+function runStatement(sql) {
+  var job = BigQuery.Jobs.query(
+    { query: sql, useLegacySql: false, timeoutMs: 300000 }, PROJECT_ID);
+  var jobId = job.jobReference.jobId;
+  var waited = 0;
+  while (!job.jobComplete) {
+    Utilities.sleep(3000);
+    waited += 3000;
+    if (waited > 540000) throw new Error('BigQuery job ' + jobId + ' timed out');
+    job = BigQuery.Jobs.getQueryResults(PROJECT_ID, jobId);
+  }
+  if (job.errors && job.errors.length) {
+    throw new Error('BigQuery error: ' + JSON.stringify(job.errors[0]));
+  }
+  return jobId;
+}
+
+/** Copies the current BigQuery results into the Sheet (stage B). */
 function refreshFundingHealth() {
   var summary = runQuery(SUMMARY_SQL);
   var queue = runQuery(QUEUE_SQL);

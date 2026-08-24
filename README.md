@@ -66,20 +66,26 @@ gcloud auth login
 ./scripts/bq_dry_run.sh
 ```
 
-4. **Schedule the checks** — run `sql/10_issues.sql` and `sql/20_summary.sql`
-   as a BigQuery **scheduled query** (daily). These are the only steps that
-   touch the raw warehouse.
-5. **Land them in the Sheet** — the dedicated
-   [Funding Data Health sheet](https://docs.google.com/spreadsheets/d/1geXbBHZO4HXuoJbO8CkwBJlz5nbUzFaMqQEDBu_-MEM)
-   (the main *Edits tracking* sheet is read-only for the data team, so the
-   script can't live there). It must be set to **Anyone with the link → Viewer**
-   for the static dashboard to fetch its CSV. Follow the setup notes at the top of
-   [`apps_script/funding_health.gs`](apps_script/funding_health.gs): paste it
-   into the dashboard Sheet's Apps Script, enable the BigQuery service, run it
-   once, then add a daily trigger.
-6. **Wire the tab** — copy each created tab's `gid` from the Sheet URL into
-   `GID_SUMMARY` / `GID_QUEUE` in `src/FundingDataHealth.tsx` in
-   Profile-edit-monitor. Until then the tab renders a note saying exactly that.
+4. **Create the rebuild procedure** — run
+   [`sql/30_rebuild_procedure.sql`](sql/30_rebuild_procedure.sql) once in the
+   BigQuery console. It wraps both check files in `data_health.rebuild()`, so
+   the SQL has a single definition and the daily driver needs one line.
+   Regenerate it with `PYTHONPATH=. python scripts/build_procedure.py` whenever
+   the checks change.
+5. **Land it in the Sheet** — paste
+   [`apps_script/funding_health.gs`](apps_script/funding_health.gs) into the
+   [Data Health sheet](https://docs.google.com/spreadsheets/d/1geXbBHZO4HXuoJbO8CkwBJlz5nbUzFaMqQEDBu_-MEM)
+   (Extensions → Apps Script), add the BigQuery service, then add a daily
+   trigger for **`dailyDataHealthRun`**. The sheet must be set to *Anyone with
+   the link → Viewer* so the static dashboard can fetch its CSV.
+
+   `dailyDataHealthRun` does both stages in order — recompute, then copy. That
+   ordering matters: with two separate schedules the Sheet can refresh from
+   tables that have not been rebuilt yet, and the dashboard then shows stale
+   numbers while looking perfectly healthy.
+6. **Nothing to wire in the tab** — it reads the sheet tabs by name, not by gid.
+   (A wrong gid makes gviz silently fall back to sheet 0, which shows plausible
+   but wrong numbers instead of failing.)
 
 Because on-demand BigQuery bills per *byte scanned* and the checks touch only a
 handful of columns once per day, cost stays low. The Apps Script reads the small
