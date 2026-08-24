@@ -11,19 +11,33 @@ rules to the same `data_health.issues` table and the same fix queue.
 
 ## What it checks — funding
 
-| # | Check | Why it matters |
-|---|-------|----------------|
-| 1 | **Big rounds not verified** | Rounds ≥ $10M carrying Dealroom's literal `Unverified` status. |
-| 2 | **Rounds without a round type** | A funding round with no type set. Shouldn't happen. |
-| 3 | **Rounds out of stage order** | An earlier-stage round recorded *after* a later-stage one. |
-| 4 | **Late stage with no early stage** | A late-stage round but no early-stage round on record — possible duplicate profile or missed early rounds. |
-| 5 | **Big rounds without a location** | Big rounds on profiles with no location, so the amount can't flow into an ecosystem's value. Requires **country and city** — a country with no city is incomplete; street address is not required. |
-| 6 | **High funding, few employees** | High funding/valuation but < 10 employees — headcount likely missing or stale. |
+Each check's count is verified to equal the linked search in the Dealroom app, so
+the dashboard and the app never disagree.
 
-Verification is **read, not inferred**: check 1 fires only when a round is
-explicitly marked unverified. Unknown status is never reported as a problem, and
-there is no round-type carve-out — an unverified $15B acquisition is still an
-unverified big round.
+| # | Check | Definition | Count |
+|---|-------|-----------|------:|
+| 1 | **Rounds without a round type** | Funding rounds with no round type set. Links to `rounds/anyof_NOT SET`. | 36,543 |
+| 2 | **Big rounds not verified** | Funding rounds ≥ $10M carrying Dealroom's literal `Unverified` status. | 10,420 |
+| 3 | **Big funding, ≤10 staff** | ≥ $100M raised, last funding 2025+, ≤10 employees, excluding mature companies, post-acquisition shells and pre-1990 launches. | 115 |
+| 4 | **No location** | Funded 2025+ with no country set. Equivalent to the app's `regions/not_Global`. | 56 |
+
+Two principles the checks are built on, both learned the hard way:
+
+* **Read Dealroom's flags, don't re-derive them.** `flg_is_verified` is the
+  verification status; `flg_is_funding_round` separates rounds from
+  acquisitions, post-IPO instruments and secondaries. Hand-rolled
+  approximations of both were wrong — the second overstated every round-level
+  check by ~4,300 rows.
+* **A check is only as trustworthy as its link.** Where a rule cannot be
+  expressed as an app filter, either the rule is redefined so it can be, or it
+  is dropped. A count that disagrees with its own link is worse than no link.
+
+Known deviation: this check reports 115 for big-funding/low-headcount where the
+app reports 137. Warehouse staleness, NULL launch years, NULL employees and the
+mature/acquisition exclusions have all been ruled out as causes; one of
+employees, total_funding or last_funding_year is measured differently in the app
+than in the warehouse, and closing it needs a company present in the app's list
+but absent from ours.
 
 ## Architecture
 
@@ -36,12 +50,12 @@ client.
 
 ```
 BigQuery (raw)
-  └── sql/10_issues.sql    six checks → data_health.issues   (one row per issue)
+  └── sql/10_issues.sql    four checks → data_health.issues  (one row per issue)
   └── sql/20_summary.sql   rollups    → data_health.summary / _by_country / runs
         └── apps_script/funding_health.gs   (daily trigger)
               → Sheet tabs: funding_health_summary (appends, gives the trend)
                             funding_health_queue   (replaced, top-N worklist)
-                    └── Profile-edit-monitor → src/FundingDataHealth.tsx (#funding-data)
+                    └── Profile-edit-monitor → src/DataHealth.tsx (#data-health)
 ```
 
 **Scale matters here.** At global scope a single rule flags tens of thousands of

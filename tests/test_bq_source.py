@@ -80,11 +80,8 @@ def test_universe_and_queue(tmp_path):
 def test_rules_with_no_rows_still_present(tmp_path):
     report, _q, _c = load_export(write(tmp_path))
     # Every check must appear even when the export carries none of its rows.
-    assert len(report.results) == 5
+    assert len(report.results) == 4
     assert report.result("high_funding_few_employees").count == 0
-    # Rules the warehouse can emit must all be registered, or load_export drops
-    # their rows on the floor.
-    assert report.result("missing_city").count == 0
 
 
 def test_csv_export_of_bq_queue(tmp_path):

@@ -37,13 +37,10 @@ companies AS (
     e.dealroom_url                    AS company_url,
     (SELECT l.country FROM UNNEST(e.locations) l
       WHERE l.flg_is_hq AND l.country IS NOT NULL LIMIT 1) AS hq_country,
-    -- Location completeness needs country AND city on the same record. Street
-    -- address is not required. The two failure modes are tracked separately
-    -- because they are different amounts of work to fix: adding a missing city
-    -- to a known country is quick, having neither is a research job.
-    EXISTS(SELECT 1 FROM UNNEST(e.locations) l
-             WHERE l.country IS NOT NULL AND TRIM(l.country) != ''
-               AND l.city    IS NOT NULL AND TRIM(l.city)    != '') AS has_location,
+    -- Location completeness = has a country. That is exactly what the app's
+    -- regions/not_Global filter expresses (every located company carries Global
+    -- in its country_region hierarchy), so the check and its link agree by
+    -- construction. Street address is not required.
     EXISTS(SELECT 1 FROM UNNEST(e.locations) l
              WHERE l.country IS NOT NULL AND TRIM(l.country) != '') AS has_country,
     CAST(e.employees AS INT64)             AS employees,
@@ -109,7 +106,7 @@ company_latest_year AS (
   FROM r GROUP BY company_id
 ),
 
--- =========================== the five checks ==============================
+-- =========================== the four checks ==============================
 
 -- 1. Big rounds (>=$10M) carrying the literal "Unverified" status.
 --    Reads is_verified as recorded — no inference, and no round-type carve-out
@@ -142,23 +139,7 @@ missing_round_type AS (
   WHERE r.rtype_norm IN ('', 'NOT SET')
 ),
 
--- 5a. Recently funded companies whose country is known but city is not.
---     Quick fix: the ecosystem is already identifiable.
-missing_city AS (
-  SELECT
-    'missing_city', 'warning',
-    c.company_id, c.company_name, c.company_url, c.hq_country,
-    CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS STRING), c.total_funding_usd,
-    c.total_funding_usd,
-    'Funded recently; country is set but the city is missing.',
-    y.latest_round_year
-  FROM companies c
-  JOIN company_latest_year y USING (company_id)
-  WHERE y.latest_round_year >= recent_funding_year
-    AND c.has_country AND NOT c.has_location
-),
-
--- 5b. Recently funded companies with no country at all, so the amount cannot
+-- 5. Recently funded companies with no country at all, so the amount cannot
 --     reach any ecosystem. Gated on recency rather than round size, matching
 --     the app filter this links to:
 --       companies/f/last_funding_year_min/anyof_<year>/regions/not_Global
@@ -171,7 +152,7 @@ missing_location AS (
     c.company_id, c.company_name, c.company_url, c.hq_country,
     CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS STRING), c.total_funding_usd,
     c.total_funding_usd,
-    'Funded recently but has no country or city — the amount cannot flow into an ecosystem value.',
+    'Funded recently but has no location set — the amount cannot flow into an ecosystem value.',
     y.latest_round_year
   FROM companies c
   JOIN company_latest_year y USING (company_id)
@@ -215,7 +196,6 @@ SELECT
 FROM (
   SELECT * FROM big_unverified
   UNION ALL SELECT * FROM missing_round_type
-  UNION ALL SELECT * FROM missing_city
   UNION ALL SELECT * FROM missing_location
   UNION ALL SELECT * FROM high_funding_few_employees
 );

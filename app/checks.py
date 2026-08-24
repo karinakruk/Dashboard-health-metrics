@@ -8,11 +8,13 @@ The checks (as specified by the data team):
 
 1. Big rounds (>=$10M) that are not verified.
 2. Rounds without a round type (should not happen).
-3. Big rounds on profiles without a location (country and city are both
-   required). The warehouse path splits this into "city missing" vs "country
-   and city missing"; this harness only implements the latter, because the
-   local snapshot has no structured city field.
-4. Companies with high funding/valuation but fewer than 10 employees.
+3. Recently funded companies with no location set.
+4. Companies with high funding but 10 or fewer employees.
+
+Note: the warehouse (sql/10_issues.sql) is the source of truth for these rules.
+This harness reproduces them approximately for offline development — it gates
+the location and headcount checks on the snapshot's coarser fields rather than
+on last-funding-year — so counts here will not match production.
 """
 
 from __future__ import annotations
@@ -21,51 +23,6 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 
 from .models import BIG_ROUND_THRESHOLD_USD, Company, Round
-
-# --------------------------------------------------------------------------- #
-# Stage ladder
-# --------------------------------------------------------------------------- #
-# Tiers group round types into ordered funding stages. Types that are not a
-# fundraising *stage* (debt, grants, secondaries, M&A, ...) return None and are
-# ignored by the sequence checks.
-TIER_EARLY = 1  # pre-seed / seed / early VC / Series A
-TIER_MID = 2  # Series B / Series C
-TIER_LATE = 3  # Series D+ / late VC / growth equity
-TIER_PUBLIC = 4  # IPO and post-IPO instruments
-
-_STAGE_TIERS: dict[str, int] = {
-    "PRE-SEED": TIER_EARLY,
-    "PRE SEED": TIER_EARLY,
-    "ANGEL": TIER_EARLY,
-    "MICRO-SEED": TIER_EARLY,
-    "SEED": TIER_EARLY,
-    "SEED EXTENSION": TIER_EARLY,
-    "EARLY VC": TIER_EARLY,
-    "SERIES A": TIER_EARLY,
-    "SERIES B": TIER_MID,
-    "SERIES C": TIER_MID,
-    "SERIES D": TIER_LATE,
-    "SERIES E": TIER_LATE,
-    "SERIES F": TIER_LATE,
-    "SERIES G": TIER_LATE,
-    "SERIES H": TIER_LATE,
-    "LATE VC": TIER_LATE,
-    "GROWTH EQUITY VC": TIER_LATE,
-    "GROWTH EQUITY NON VC": TIER_LATE,
-    "IPO": TIER_PUBLIC,
-    "POST IPO DEBT": TIER_PUBLIC,
-    "POST IPO EQUITY": TIER_PUBLIC,
-    "POST IPO CONVERTIBLE": TIER_PUBLIC,
-    "POST IPO SECONDARY": TIER_PUBLIC,
-}
-
-
-def stage_tier(round_: Round) -> int | None:
-    """Return the funding-stage tier of a round, or None if it is not a stage."""
-    if not round_.round_type:
-        return None
-    return _STAGE_TIERS.get(round_.round_type.strip().upper())
-
 
 # --------------------------------------------------------------------------- #
 # Issue + check metadata
@@ -137,21 +94,6 @@ def check_missing_round_type(companies: Iterable[Company]) -> Iterator[Issue]:
                 )
 
 
-def check_missing_city(companies: Iterable[Company]) -> Iterator[Issue]:
-    """Big rounds where the country is known but the city is not.
-
-    The warehouse splits the location gap in two, because a missing city on a
-    known country is a quick fix while missing both needs research. This local
-    harness cannot reproduce the split — the snapshot has no structured city
-    field — so it yields nothing and the rule shows zero locally.
-
-    It is still registered in ``ALL_CHECKS``: the BigQuery reader builds its
-    report by iterating that list, so a rule missing from it would have its rows
-    silently dropped rather than displayed.
-    """
-    return iter(())
-
-
 def check_missing_location(companies: Iterable[Company]) -> Iterator[Issue]:
     for c in companies:
         if c.has_location:
@@ -174,9 +116,8 @@ def check_missing_location(companies: Iterable[Company]) -> Iterator[Issue]:
         )
 
 
-# Thresholds for the funding-vs-headcount check. Aligned with the app filter the
-# dashboard links to, so the count and the linked search agree: employees <= 10
-# (the app's buckets are {1, 2-10}) and funding only, with no valuation branch.
+# Thresholds for the funding-vs-headcount check, matching the app filter the
+# dashboard links to: employees_max 10 and total_funding_min $100M.
 HIGH_FUNDING_USD = 100_000_000
 EMPLOYEE_CEILING = 10
 
@@ -221,18 +162,9 @@ ALL_CHECKS: list[tuple[CheckMeta, object]] = [
     ),
     (
         CheckMeta(
-            "missing_city",
-            "City missing",
-            "Funded recently; country known but city missing.",
-            WARNING,
-        ),
-        check_missing_city,
-    ),
-    (
-        CheckMeta(
             "missing_location",
             "No location",
-            "Funded recently but has no country or city.",
+            "Funded recently but has no location set.",
             SERIOUS,
         ),
         check_missing_location,

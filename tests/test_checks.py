@@ -124,14 +124,9 @@ def test_snapshot_runs_and_every_check_fires():
     report = run_checks(load_snapshot().companies)
     assert report.total_companies == 9
     assert report.total_issues > 0
-    # The curated snapshot makes every check fire, except the city split, which
-    # needs structured city data the snapshot does not carry.
-    silent = {"missing_city"}
+    # The curated snapshot is built so every check has at least one hit.
     for r in report.results:
-        if r.meta.id in silent:
-            assert r.count == 0, f"{r.meta.id} unexpectedly fired locally"
-        else:
-            assert r.count > 0, f"{r.meta.id} did not fire on the snapshot"
+        assert r.count > 0, f"{r.meta.id} did not fire on the snapshot"
     assert 0 <= report.health_score <= 100
 
 
