@@ -67,8 +67,22 @@ rounds AS (
     f.flg_is_verified           AS is_verified,  -- nullable: NULL = unknown
     CAST(f.year AS INT64)       AS round_year
   FROM dealroom_intelligence.funding f
+  -- Only actual funding rounds. The funding table also holds acquisitions,
+  -- post-IPO equity/debt, secondaries and ICOs; counting those as "rounds"
+  -- overstated every round-level check by ~4.3k rows and did not match the
+  -- app's transactions.rounds view. Read Dealroom's own flag rather than
+  -- maintaining a list of round types to exclude.
+  WHERE f.flg_is_funding_round
 ),
 -- ---------------------------------------------------------------------------
+-- Rounds with a normalised type, used by every round-level check.
+r AS (
+  SELECT
+    rounds.*,
+    UPPER(TRIM(COALESCE(rounds.round_type, ''))) AS rtype_norm
+  FROM rounds
+),
+
 -- Latest round year per company, so company-level issues can still be
 -- prioritised by recency.
 company_latest_year AS (
@@ -99,7 +113,7 @@ big_unverified AS (
     r.amount_usd AS impact_usd,
     'Round is marked Unverified in Dealroom.' AS detail,
     r.round_year
-  FROM r r
+  FROM r
   JOIN companies c USING (company_id)
   WHERE r.amount_usd >= big_round_threshold_usd
     AND r.is_verified = FALSE
@@ -114,7 +128,7 @@ missing_round_type AS (
     r.amount_usd,
     'Round has no round type set.',
     r.round_year
-  FROM r r
+  FROM r
   JOIN companies c USING (company_id)
   WHERE r.rtype_norm IN ('', 'NOT SET')
 ),
