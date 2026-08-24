@@ -8,13 +8,8 @@ from app.checks import (
     check_big_round_missing_location,
     check_big_unverified,
     check_high_funding_few_employees,
-    check_late_without_early,
     check_missing_round_type,
-    check_sequence_out_of_order,
     run_checks,
-    stage_tier,
-    TIER_EARLY,
-    TIER_LATE,
 )
 from app.models import Company, Round, load_snapshot
 
@@ -41,16 +36,6 @@ def company(**kw) -> Company:
 def rnd(date, rtype, amount, valuation=None, lead=False, verified=None) -> Round:
     return Round(date=date, round_type=rtype, amount_usd=amount,
                  valuation_usd=valuation, has_lead=lead, verified=verified)
-
-
-# --- stage classification --------------------------------------------------- #
-
-def test_stage_tiers():
-    assert stage_tier(rnd("2020-01", "SEED", 0)) == TIER_EARLY
-    assert stage_tier(rnd("2020-01", "SERIES A", 0)) == TIER_EARLY
-    assert stage_tier(rnd("2020-01", "LATE VC", 0)) == TIER_LATE
-    assert stage_tier(rnd("2020-01", "DEBT", 0)) is None  # not a stage
-    assert stage_tier(rnd("2020-01", None, 0)) is None
 
 
 # --- check 1: big rounds not verified --------------------------------------- #
@@ -104,41 +89,6 @@ def test_missing_round_type_flags_null_and_not_set():
     assert len(list(check_missing_round_type([c]))) == 2
 
 
-# --- check 3: sequence out of order ----------------------------------------- #
-
-def test_sequence_out_of_order_flags_regression():
-    c = company(rounds=[
-        rnd("2020-01", "SERIES C", 40_000_000),      # mid/late
-        rnd("2021-01", "SERIES A", 10_000_000),      # earlier stage, later date
-    ])
-    issues = list(check_sequence_out_of_order([c]))
-    assert len(issues) == 1 and issues[0].round_type == "SERIES A"
-
-
-def test_sequence_in_order_is_clean():
-    c = company(rounds=[
-        rnd("2019-01", "SEED", 1_000_000),
-        rnd("2020-01", "SERIES A", 10_000_000),
-        rnd("2021-01", "SERIES B", 30_000_000),
-    ])
-    assert list(check_sequence_out_of_order([c])) == []
-
-
-# --- check 4: late stage with no early stage -------------------------------- #
-
-def test_late_without_early_flags_company():
-    c = company(rounds=[rnd("2020-01", "LATE VC", 100_000_000, valuation=1)])
-    assert [i.company_id for i in check_late_without_early([c])] == ["x"]
-
-
-def test_late_with_early_is_clean():
-    c = company(rounds=[
-        rnd("2018-01", "SEED", 1_000_000),
-        rnd("2020-01", "LATE VC", 100_000_000, valuation=1),
-    ])
-    assert list(check_late_without_early([c])) == []
-
-
 # --- check 5: big round, no location ---------------------------------------- #
 
 def test_big_round_no_location_flags_when_location_missing():
@@ -174,6 +124,33 @@ def test_snapshot_runs_and_every_check_fires():
     report = run_checks(load_snapshot().companies)
     assert report.total_companies == 9
     assert report.total_issues > 0
-    # The curated real snapshot is built so every check has at least one hit.
-    assert all(r.count > 0 for r in report.results)
+    # The curated snapshot makes every check fire, except the city split, which
+    # needs structured city data the snapshot does not carry.
+    silent = {"big_round_missing_city"}
+    for r in report.results:
+        if r.meta.id in silent:
+            assert r.count == 0, f"{r.meta.id} unexpectedly fired locally"
+        else:
+            assert r.count > 0, f"{r.meta.id} did not fire on the snapshot"
     assert 0 <= report.health_score <= 100
+
+
+# --- SQL / Python rule parity ------------------------------------------------ #
+
+def test_registered_rules_match_the_sql():
+    """Every rule the SQL can emit must be registered in ALL_CHECKS.
+
+    load_export() builds its report by iterating ALL_CHECKS, so a rule present
+    in the warehouse but missing here would be silently discarded.
+    """
+    import re
+    from pathlib import Path
+    from app.checks import ALL_CHECKS
+
+    sql = (Path(__file__).resolve().parent.parent / "sql" / "10_issues.sql").read_text()
+    # Rule ids appear as the first projected literal of each check's SELECT.
+    sql_rules = set(re.findall(r"^\s*'([a-z_]+)'(?:\s+AS rule_id)?,", sql, re.M))
+    registered = {meta.id for meta, _ in ALL_CHECKS}
+    assert sql_rules == registered, (
+        f"only in SQL: {sql_rules - registered} | only in Python: {registered - sql_rules}"
+    )

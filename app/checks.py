@@ -8,14 +8,11 @@ The checks (as specified by the data team):
 
 1. Big rounds (>=$10M) that are not verified.
 2. Rounds without a round type (should not happen).
-3. Round sequence out of order — an earlier-stage round after a later-stage one.
-4. A late-stage round with no earlier early-stage round (possible duplicate
-   profile, or early rounds we missed).
-5. Big rounds on profiles without a location (country and city are both
+3. Big rounds on profiles without a location (country and city are both
    required). The warehouse path splits this into "city missing" vs "country
    and city missing"; this harness only implements the latter, because the
    local snapshot has no structured city field.
-6. Companies with high funding/valuation but fewer than 10 employees.
+4. Companies with high funding/valuation but fewer than 10 employees.
 """
 
 from __future__ import annotations
@@ -140,45 +137,19 @@ def check_missing_round_type(companies: Iterable[Company]) -> Iterator[Issue]:
                 )
 
 
-def check_sequence_out_of_order(companies: Iterable[Company]) -> Iterator[Issue]:
-    for c in companies:
-        highest_tier_so_far = 0
-        for r in c.rounds_by_date:
-            tier = stage_tier(r)
-            if tier is None:
-                continue
-            if tier < highest_tier_so_far:
-                yield Issue(
-                    check_id="sequence_out_of_order",
-                    company_id=c.id,
-                    company_name=c.name,
-                    detail=(
-                        f"{r.round_type} recorded after a later-stage round "
-                        "already took place."
-                    ),
-                    round_date=r.date,
-                    round_type=r.round_type,
-                    amount_usd=r.amount_usd,
-                )
-            highest_tier_so_far = max(highest_tier_so_far, tier)
+def check_big_round_missing_city(companies: Iterable[Company]) -> Iterator[Issue]:
+    """Big rounds where the country is known but the city is not.
 
+    The warehouse splits the location gap in two, because a missing city on a
+    known country is a quick fix while missing both needs research. This local
+    harness cannot reproduce the split — the snapshot has no structured city
+    field — so it yields nothing and the rule shows zero locally.
 
-def check_late_without_early(companies: Iterable[Company]) -> Iterator[Issue]:
-    for c in companies:
-        tiers = {stage_tier(r) for r in c.rounds}
-        tiers.discard(None)
-        has_late = any(t >= TIER_LATE for t in tiers)
-        has_early = TIER_EARLY in tiers
-        if has_late and not has_early:
-            yield Issue(
-                check_id="late_without_early",
-                company_id=c.id,
-                company_name=c.name,
-                detail=(
-                    "Has late-stage rounds but no early-stage round on record — "
-                    "possible duplicate profile or missing early rounds."
-                ),
-            )
+    It is still registered in ``ALL_CHECKS``: the BigQuery reader builds its
+    report by iterating that list, so a rule missing from it would have its rows
+    silently dropped rather than displayed.
+    """
+    return iter(())
 
 
 def check_big_round_missing_location(companies: Iterable[Company]) -> Iterator[Issue]:
@@ -251,21 +222,12 @@ ALL_CHECKS: list[tuple[CheckMeta, object]] = [
     ),
     (
         CheckMeta(
-            "sequence_out_of_order",
-            "Rounds out of stage order",
-            "An earlier-stage round recorded after a later-stage round.",
+            "big_round_missing_city",
+            "City missing",
+            "Big rounds where the country is known but the city is not.",
             WARNING,
         ),
-        check_sequence_out_of_order,
-    ),
-    (
-        CheckMeta(
-            "late_without_early",
-            "Late stage with no early stage",
-            "A late-stage round with no early-stage round on record.",
-            WARNING,
-        ),
-        check_late_without_early,
+        check_big_round_missing_city,
     ),
     (
         CheckMeta(

@@ -85,51 +85,8 @@ BEGIN
     FROM dealroom_intelligence.funding f
   ),
   -- ---------------------------------------------------------------------------
-  -- Stage ladder. Types absent here are not a fundraising *stage* (debt, grants,
-  -- secondaries, M&A) and are ignored by the sequence checks.
-  stage_tiers AS (
-    SELECT * FROM UNNEST([
-      STRUCT('PRE-SEED' AS round_type, 1 AS tier), ('ANGEL', 1), ('MICRO-SEED', 1),
-      ('SEED', 1), ('SEED EXTENSION', 1), ('EARLY VC', 1), ('SERIES A', 1),
-      ('SERIES B', 2), ('SERIES C', 2),
-      ('SERIES D', 3), ('SERIES E', 3), ('SERIES F', 3), ('SERIES G', 3),
-      ('SERIES H', 3), ('LATE VC', 3),
-      ('GROWTH EQUITY VC', 3), ('GROWTH EQUITY NON VC', 3),
-      ('IPO', 4), ('POST IPO DEBT', 4), ('POST IPO EQUITY', 4),
-      ('POST IPO CONVERTIBLE', 4), ('POST IPO SECONDARY', 4)
-    ])
-  ),
-  r AS (
-    SELECT
-      rounds.*,
-      UPPER(TRIM(COALESCE(rounds.round_type, ''))) AS rtype_norm,
-      stage_tiers.tier                             AS tier
-    FROM rounds
-    LEFT JOIN stage_tiers
-      ON UPPER(TRIM(rounds.round_type)) = stage_tiers.round_type
-  ),
-
-  -- Highest stage tier reached *before* each round, for the sequence check.
-  r_seq AS (
-    SELECT
-      r.*,
-      MAX(tier) OVER (
-        PARTITION BY company_id
-        ORDER BY round_date, tier DESC
-        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-      ) AS prior_max_tier
-    FROM r
-  ),
-
-  company_tiers AS (
-    SELECT
-      company_id,
-      LOGICAL_OR(tier >= 3) AS has_late,
-      LOGICAL_OR(tier  = 1) AS has_early
-    FROM r
-    GROUP BY company_id
-  ),
-
+  -- Latest round year per company, so company-level issues can still be
+  -- prioritised by recency.
   company_latest_year AS (
     SELECT company_id, MAX(round_year) AS latest_round_year
     FROM r GROUP BY company_id
@@ -145,7 +102,7 @@ BEGIN
     GROUP BY company_id
   ),
 
-  -- ============================ the six checks ==============================
+  -- =========================== the five checks ==============================
 
   -- 1. Big rounds (>=$10M) carrying the literal "Unverified" status.
   --    Reads is_verified as recorded — no inference, and no round-type carve-out
@@ -158,7 +115,7 @@ BEGIN
       r.amount_usd AS impact_usd,
       'Round is marked Unverified in Dealroom.' AS detail,
       r.round_year
-    FROM r_seq r
+    FROM r r
     JOIN companies c USING (company_id)
     WHERE r.amount_usd >= big_round_threshold_usd
       AND r.is_verified = FALSE
@@ -173,40 +130,9 @@ BEGIN
       r.amount_usd,
       'Round has no round type set.',
       r.round_year
-    FROM r_seq r
+    FROM r r
     JOIN companies c USING (company_id)
     WHERE r.rtype_norm IN ('', 'NOT SET')
-  ),
-
-  -- 3. An earlier-stage round recorded after a later-stage one.
-  sequence_out_of_order AS (
-    SELECT
-      'sequence_out_of_order', 'warning',
-      c.company_id, c.company_name, c.company_url, c.hq_country,
-      r.round_id, r.round_date, r.round_type, r.amount_usd,
-      r.amount_usd,
-      CONCAT(r.round_type, ' recorded after a later-stage round already took place.'),
-      r.round_year
-    FROM r_seq r
-    JOIN companies c USING (company_id)
-    WHERE r.tier IS NOT NULL
-      AND r.prior_max_tier IS NOT NULL
-      AND r.tier < r.prior_max_tier
-  ),
-
-  -- 4. Late-stage rounds with no early-stage round on record.
-  late_without_early AS (
-    SELECT
-      'late_without_early', 'warning',
-      c.company_id, c.company_name, c.company_url, c.hq_country,
-      CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS INT64),
-      c.total_funding_usd,
-      'Has late-stage rounds but no early-stage round on record — possible duplicate profile or missing early rounds.',
-      y.latest_round_year
-    FROM company_tiers t
-    JOIN companies c USING (company_id)
-    LEFT JOIN company_latest_year y USING (company_id)
-    WHERE t.has_late AND NOT t.has_early
   ),
 
   -- 5a. Big rounds where the country is known but the city is missing.
@@ -267,8 +193,6 @@ BEGIN
   FROM (
     SELECT * FROM big_unverified
     UNION ALL SELECT * FROM missing_round_type
-    UNION ALL SELECT * FROM sequence_out_of_order
-    UNION ALL SELECT * FROM late_without_early
     UNION ALL SELECT * FROM big_round_missing_city
     UNION ALL SELECT * FROM big_round_missing_location
     UNION ALL SELECT * FROM high_funding_few_employees

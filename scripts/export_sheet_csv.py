@@ -173,6 +173,16 @@ def main() -> None:
         w.writeheader()
         w.writerows(existing + new_rows)
 
+
+    def latest_year(company_name: str) -> str:
+        """Most recent round year for a company, as a string ('' if unknown)."""
+        company = next(
+            (c for c in snapshot.companies if c.name == company_name), None)
+        if not company or not company.rounds:
+            return ""
+        years = [r.date[:4] for r in company.rounds if r.date]
+        return max(years) if years else ""
+
     # ── queue: replaced wholesale ──
     with (out / QUEUE_FILE).open("w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=QUEUE_HEADERS)
@@ -193,9 +203,9 @@ def main() -> None:
                 "amount_usd": item.impact_usd if item.round_date else 0,
                 "impact_usd": item.impact_usd,
                 "detail": item.detail,
-                # The local harness has no structured city/round-year data;
-                # the warehouse path fills this in properly.
-                "round_year": (item.round_date or "")[:4],
+                # Round-level issues use their own year; company-level ones use
+                # the company's latest round year, matching what the SQL emits.
+                "round_year": (item.round_date or "")[:4] or latest_year(item.company_name),
             })
             del company  # slug comes from the queue item's own URL
 
