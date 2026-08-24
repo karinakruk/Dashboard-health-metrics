@@ -174,19 +174,18 @@ def check_big_round_missing_location(companies: Iterable[Company]) -> Iterator[I
         )
 
 
-# "High" thresholds for the funding-vs-headcount sanity check.
+# Thresholds for the funding-vs-headcount check. Aligned with the app filter the
+# dashboard links to, so the count and the linked search agree: employees <= 10
+# (the app's buckets are {1, 2-10}) and funding only, with no valuation branch.
 HIGH_FUNDING_USD = 25_000_000
-HIGH_VALUATION_USD = 100_000_000
-EMPLOYEE_FLOOR = 10
+EMPLOYEE_CEILING = 10
 
 
 def check_high_funding_few_employees(companies: Iterable[Company]) -> Iterator[Issue]:
     for c in companies:
-        if c.employees is None or c.employees >= EMPLOYEE_FLOOR:
+        if c.employees is None or c.employees > EMPLOYEE_CEILING:
             continue
-        high_funding = c.total_funding_usd >= HIGH_FUNDING_USD
-        high_valuation = (c.latest_valuation_usd or 0) >= HIGH_VALUATION_USD
-        if not (high_funding or high_valuation):
+        if c.total_funding_usd < HIGH_FUNDING_USD:
             continue
         yield Issue(
             check_id="high_funding_few_employees",
@@ -242,7 +241,7 @@ ALL_CHECKS: list[tuple[CheckMeta, object]] = [
         CheckMeta(
             "high_funding_few_employees",
             "High funding, few employees",
-            "High funding or valuation but fewer than 10 employees.",
+            "Total funding >= $25M but 10 or fewer employees.",
             SERIOUS,
         ),
         check_high_funding_few_employees,

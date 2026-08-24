@@ -13,8 +13,7 @@
 
 DECLARE big_round_threshold_usd INT64   DEFAULT 10000000;
 DECLARE high_funding_usd        INT64   DEFAULT 25000000;
-DECLARE high_valuation_usd      INT64   DEFAULT 100000000;
-DECLARE employee_floor          INT64   DEFAULT 10;
+DECLARE employee_ceiling        INT64   DEFAULT 10;  -- inclusive, matching the app's {1, 2-10} buckets
 
 CREATE SCHEMA IF NOT EXISTS data_health;
 
@@ -167,7 +166,16 @@ big_round_missing_location AS (
   WHERE NOT c.has_country
 ),
 
--- 6. High funding or valuation but fewer than 10 employees.
+-- 6. High funding but 10 or fewer employees.
+--    Defined to match the app filter this check links to exactly:
+--      companies/f/total_funding_min/anyof_25000000/employees/anyof_1_2-10
+--    Two consequences of that alignment, deliberately accepted so the number on
+--    the dashboard equals the number in the app:
+--      * `<= 10`, not `< 10`: the app's employee buckets are {1, 2-10}, which
+--        includes exactly 10.
+--      * no valuation branch: the app cannot express "funding >= X OR valuation
+--        >= Y". Dropping it loses ~2,061 companies that had a high valuation but
+--        low/unknown funding — worth revisiting as its own check.
 high_funding_few_employees AS (
   SELECT
     'high_funding_few_employees', 'serious',
@@ -180,9 +188,8 @@ high_funding_few_employees AS (
   FROM companies c
   LEFT JOIN company_latest_year y USING (company_id)
   WHERE c.employees IS NOT NULL
-    AND c.employees < employee_floor
-    AND (c.total_funding_usd >= high_funding_usd
-         OR COALESCE(c.latest_valuation_usd, 0) >= high_valuation_usd)
+    AND c.employees <= employee_ceiling
+    AND c.total_funding_usd >= high_funding_usd
 )
 
 SELECT
