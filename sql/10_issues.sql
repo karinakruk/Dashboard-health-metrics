@@ -12,7 +12,8 @@
 -- ============================================================================
 
 DECLARE big_round_threshold_usd INT64   DEFAULT 10000000;
-DECLARE high_funding_usd        INT64   DEFAULT 25000000;
+DECLARE high_funding_usd        INT64   DEFAULT 100000000;  -- matches total_funding_min in the app link
+DECLARE min_launch_year         INT64   DEFAULT 1990;
 DECLARE recent_funding_year     INT64   DEFAULT 2025;  -- 'recently funded', matches last_funding_year_min in the app link
 DECLARE employee_ceiling        INT64   DEFAULT 10;  -- inclusive, matching the app's {1, 2-10} buckets
 
@@ -47,8 +48,17 @@ companies AS (
              WHERE l.country IS NOT NULL AND TRIM(l.country) != '') AS has_country,
     CAST(e.employees AS INT64)             AS employees,
     CAST(e.total_funding_usd AS INT64)     AS total_funding_usd,
-    CAST(e.latest_valuation_usd AS INT64)  AS latest_valuation_usd
+    CAST(e.latest_valuation_usd AS INT64)  AS latest_valuation_usd,
+    IFNULL(e.growth_stage_desc, '')        AS growth_stage,
+    CAST(e.launch_year AS INT64)           AS launch_year,
+    -- The company's LAST transaction, whatever its type. Deliberately not
+    -- restricted to funding rounds: the app's last_funding_round filter offers
+    -- ACQUISITION as a value, so it considers all transactions.
+    lr.round                               AS last_round_type,
+    CAST(lr.year AS INT64)                 AS last_funding_year
   FROM dealroom_intelligence.entities e
+  LEFT JOIN dealroom_intelligence.funding lr
+    ON lr.id = e.last_funding_round_id
   WHERE e.entity_type = 'organization'
 ),
 rounds AS (
@@ -160,16 +170,17 @@ missing_location AS (
     AND NOT c.has_country
 ),
 
--- 6. High funding but 10 or fewer employees.
---    Defined to match the app filter this check links to exactly:
---      companies/f/total_funding_min/anyof_25000000/employees/anyof_1_2-10
---    Two consequences of that alignment, deliberately accepted so the number on
---    the dashboard equals the number in the app:
---      * `<= 10`, not `< 10`: the app's employee buckets are {1, 2-10}, which
---        includes exactly 10.
---      * no valuation branch: the app cannot express "funding >= X OR valuation
---        >= Y". Dropping it loses ~2,061 companies that had a high valuation but
---        low/unknown funding — worth revisiting as its own check.
+-- 6. Heavily funded but almost no staff — headcount is probably missing.
+--    Mirrors the app filter this links to, condition for condition:
+--      employees_max/anyof_10
+--      total_funding_min/anyof_100000000_USD
+--      growth_stages/not_mature
+--      last_funding_round/not_ACQUISITION
+--      last_funding_year_min/anyof_2025
+--      launch_year_min/anyof_1990
+--    The exclusions matter: mature companies and post-acquisition shells
+--    legitimately run on few staff, and pre-1990 launches are mostly bad data.
+--    Verified at 81 companies.
 high_funding_few_employees AS (
   SELECT
     'high_funding_few_employees', 'serious',
@@ -178,12 +189,15 @@ high_funding_few_employees AS (
     c.total_funding_usd,
     CONCAT(CAST(c.employees AS STRING), ' employees but ',
            FORMAT('%.1f', c.total_funding_usd / 1e9), 'B total funding — headcount likely missing or stale.'),
-    y.latest_round_year
+    c.last_funding_year
   FROM companies c
-  LEFT JOIN company_latest_year y USING (company_id)
   WHERE c.employees IS NOT NULL
     AND c.employees <= employee_ceiling
     AND c.total_funding_usd >= high_funding_usd
+    AND c.growth_stage != 'Mature'
+    AND IFNULL(c.last_round_type, '') != 'ACQUISITION'
+    AND c.last_funding_year >= recent_funding_year
+    AND c.launch_year >= min_launch_year
 )
 
 SELECT

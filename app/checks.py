@@ -177,7 +177,7 @@ def check_missing_location(companies: Iterable[Company]) -> Iterator[Issue]:
 # Thresholds for the funding-vs-headcount check. Aligned with the app filter the
 # dashboard links to, so the count and the linked search agree: employees <= 10
 # (the app's buckets are {1, 2-10}) and funding only, with no valuation branch.
-HIGH_FUNDING_USD = 25_000_000
+HIGH_FUNDING_USD = 100_000_000
 EMPLOYEE_CEILING = 10
 
 
@@ -241,7 +241,7 @@ ALL_CHECKS: list[tuple[CheckMeta, object]] = [
         CheckMeta(
             "high_funding_few_employees",
             "High funding, few employees",
-            "Total funding >= $25M but 10 or fewer employees.",
+            "Raised >= $100M since 2025 but 10 or fewer employees.",
             SERIOUS,
         ),
         check_high_funding_few_employees,
