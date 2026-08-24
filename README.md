@@ -17,7 +17,7 @@ rules to the same `data_health.issues` table and the same fix queue.
 | 2 | **Rounds without a round type** | A funding round with no type set. Shouldn't happen. |
 | 3 | **Rounds out of stage order** | An earlier-stage round recorded *after* a later-stage one. |
 | 4 | **Late stage with no early stage** | A late-stage round but no early-stage round on record — possible duplicate profile or missed early rounds. |
-| 5 | **Big rounds without a location** | Big rounds on profiles with no location, so the amount can't flow into an ecosystem's value. |
+| 5 | **Big rounds without a location** | Big rounds on profiles with no location, so the amount can't flow into an ecosystem's value. Country **or** city is enough — street address is not required. |
 | 6 | **High funding, few employees** | High funding/valuation but < 10 employees — headcount likely missing or stale. |
 
 Verification is **read, not inferred**: check 1 fires only when a round is

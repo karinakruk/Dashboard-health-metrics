@@ -36,10 +36,13 @@ companies AS (
     e.dealroom_url                    AS company_url,
     (SELECT l.country FROM UNNEST(e.locations) l
       WHERE l.flg_is_hq AND l.country IS NOT NULL LIMIT 1) AS hq_country,
-    -- "Has a location" = anything that can carry the amount into an ecosystem,
-    -- so any location with a country counts, not just the flagged HQ.
+    -- "Has a location" = enough geography to attribute the amount to an
+    -- ecosystem. Country OR city level is sufficient (confirmed with the data
+    -- team) — street address is deliberately NOT required, and it need not be
+    -- the flagged HQ.
     EXISTS(SELECT 1 FROM UNNEST(e.locations) l
-             WHERE l.country IS NOT NULL AND TRIM(l.country) != '') AS has_location,
+             WHERE (l.country IS NOT NULL AND TRIM(l.country) != '')
+                OR (l.city    IS NOT NULL AND TRIM(l.city)    != '')) AS has_location,
     CAST(e.employees AS INT64)             AS employees,
     CAST(e.total_funding_usd AS INT64)     AS total_funding_usd,
     CAST(e.latest_valuation_usd AS INT64)  AS latest_valuation_usd
