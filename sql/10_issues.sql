@@ -36,13 +36,15 @@ companies AS (
     e.dealroom_url                    AS company_url,
     (SELECT l.country FROM UNNEST(e.locations) l
       WHERE l.flg_is_hq AND l.country IS NOT NULL LIMIT 1) AS hq_country,
-    -- "Has a location" = country AND city, both present on the same location
-    -- record. That is the granularity the data team needs to attribute a round
-    -- to an ecosystem: a country with no city is not enough, and street address
-    -- is not required. It need not be the flagged HQ.
+    -- Location completeness needs country AND city on the same record. Street
+    -- address is not required. The two failure modes are tracked separately
+    -- because they are different amounts of work to fix: adding a missing city
+    -- to a known country is quick, having neither is a research job.
     EXISTS(SELECT 1 FROM UNNEST(e.locations) l
              WHERE l.country IS NOT NULL AND TRIM(l.country) != ''
                AND l.city    IS NOT NULL AND TRIM(l.city)    != '') AS has_location,
+    EXISTS(SELECT 1 FROM UNNEST(e.locations) l
+             WHERE l.country IS NOT NULL AND TRIM(l.country) != '') AS has_country,
     CAST(e.employees AS INT64)             AS employees,
     CAST(e.total_funding_usd AS INT64)     AS total_funding_usd,
     CAST(e.latest_valuation_usd AS INT64)  AS latest_valuation_usd
@@ -62,7 +64,8 @@ rounds AS (
     f.round                     AS round_type,
     CAST(f.amount_usd AS INT64) AS amount_usd,
     CAST(f.valuation_usd AS INT64) AS valuation_usd,
-    f.flg_is_verified           AS is_verified  -- nullable: NULL = unknown
+    f.flg_is_verified           AS is_verified,  -- nullable: NULL = unknown
+    CAST(f.year AS INT64)       AS round_year
   FROM dealroom_intelligence.funding f
 ),
 -- ---------------------------------------------------------------------------
@@ -111,6 +114,11 @@ company_tiers AS (
   GROUP BY company_id
 ),
 
+company_latest_year AS (
+  SELECT company_id, MAX(round_year) AS latest_round_year
+  FROM r GROUP BY company_id
+),
+
 company_big_rounds AS (
   SELECT
     company_id,
@@ -132,7 +140,8 @@ big_unverified AS (
     c.company_id, c.company_name, c.company_url, c.hq_country,
     r.round_id, r.round_date, r.round_type, r.amount_usd,
     r.amount_usd AS impact_usd,
-    'Round is marked Unverified in Dealroom.' AS detail
+    'Round is marked Unverified in Dealroom.' AS detail,
+    r.round_year
   FROM r_seq r
   JOIN companies c USING (company_id)
   WHERE r.amount_usd >= big_round_threshold_usd
@@ -146,7 +155,8 @@ missing_round_type AS (
     c.company_id, c.company_name, c.company_url, c.hq_country,
     r.round_id, r.round_date, r.round_type, r.amount_usd,
     r.amount_usd,
-    'Round has no round type set.'
+    'Round has no round type set.',
+    r.round_year
   FROM r_seq r
   JOIN companies c USING (company_id)
   WHERE r.rtype_norm IN ('', 'NOT SET')
@@ -159,7 +169,8 @@ sequence_out_of_order AS (
     c.company_id, c.company_name, c.company_url, c.hq_country,
     r.round_id, r.round_date, r.round_type, r.amount_usd,
     r.amount_usd,
-    CONCAT(r.round_type, ' recorded after a later-stage round already took place.')
+    CONCAT(r.round_type, ' recorded after a later-stage round already took place.'),
+    r.round_year
   FROM r_seq r
   JOIN companies c USING (company_id)
   WHERE r.tier IS NOT NULL
@@ -174,24 +185,46 @@ late_without_early AS (
     c.company_id, c.company_name, c.company_url, c.hq_country,
     CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS INT64),
     c.total_funding_usd,
-    'Has late-stage rounds but no early-stage round on record — possible duplicate profile or missing early rounds.'
+    'Has late-stage rounds but no early-stage round on record — possible duplicate profile or missing early rounds.',
+    y.latest_round_year
   FROM company_tiers t
   JOIN companies c USING (company_id)
+  LEFT JOIN company_latest_year y USING (company_id)
   WHERE t.has_late AND NOT t.has_early
 ),
 
--- 5. Big rounds on profiles with no location.
-big_round_no_location AS (
+-- 5a. Big rounds where the country is known but the city is missing.
+--     Quick fix: the ecosystem is already identifiable, the city just needs adding.
+big_round_missing_city AS (
   SELECT
-    'big_round_no_location', 'serious',
+    'big_round_missing_city', 'warning',
     c.company_id, c.company_name, c.company_url, c.hq_country,
     CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS STRING), b.biggest_amount_usd,
     b.biggest_amount_usd,
     CONCAT(CAST(b.big_round_count AS STRING),
-           ' big round(s) but no location set — the amount cannot flow into an ecosystem value.')
+           ' big round(s); country is set but the city is missing.'),
+    y.latest_round_year
   FROM company_big_rounds b
   JOIN companies c USING (company_id)
-  WHERE NOT c.has_location
+  LEFT JOIN company_latest_year y USING (company_id)
+  WHERE NOT c.has_location AND c.has_country
+),
+
+-- 5b. Big rounds with neither country nor city — the amount cannot reach any
+--     ecosystem at all. Needs research, so it is the more serious of the two.
+big_round_missing_location AS (
+  SELECT
+    'big_round_missing_location', 'serious',
+    c.company_id, c.company_name, c.company_url, c.hq_country,
+    CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS STRING), b.biggest_amount_usd,
+    b.biggest_amount_usd,
+    CONCAT(CAST(b.big_round_count AS STRING),
+           ' big round(s) with no country or city — the amount cannot flow into an ecosystem value.'),
+    y.latest_round_year
+  FROM company_big_rounds b
+  JOIN companies c USING (company_id)
+  LEFT JOIN company_latest_year y USING (company_id)
+  WHERE NOT c.has_country
 ),
 
 -- 6. High funding or valuation but fewer than 10 employees.
@@ -202,8 +235,10 @@ high_funding_few_employees AS (
     CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS STRING), c.total_funding_usd,
     c.total_funding_usd,
     CONCAT(CAST(c.employees AS STRING), ' employees but ',
-           FORMAT('%.1f', c.total_funding_usd / 1e9), 'B total funding — headcount likely missing or stale.')
+           FORMAT('%.1f', c.total_funding_usd / 1e9), 'B total funding — headcount likely missing or stale.'),
+    y.latest_round_year
   FROM companies c
+  LEFT JOIN company_latest_year y USING (company_id)
   WHERE c.employees IS NOT NULL
     AND c.employees < employee_floor
     AND (c.total_funding_usd >= high_funding_usd
@@ -218,7 +253,8 @@ FROM (
   UNION ALL SELECT * FROM missing_round_type
   UNION ALL SELECT * FROM sequence_out_of_order
   UNION ALL SELECT * FROM late_without_early
-  UNION ALL SELECT * FROM big_round_no_location
+  UNION ALL SELECT * FROM big_round_missing_city
+  UNION ALL SELECT * FROM big_round_missing_location
   UNION ALL SELECT * FROM high_funding_few_employees
 );
 -- No ORDER BY here: a clustered CTAS cannot be ordered, and clustering by

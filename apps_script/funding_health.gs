@@ -63,7 +63,8 @@ var QUEUE_SQL =
   "  IFNULL(round_type, '') AS round_type, " +
   "  IFNULL(amount_usd, 0) AS amount_usd, " +
   "  IFNULL(impact_usd, 0) AS impact_usd, " +
-  "  detail " +
+  "  detail, " +
+  "  IFNULL(round_year, 0) AS round_year " +
   "FROM ranked WHERE rn <= " + QUEUE_LIMIT_PER_RULE + " " +
   "ORDER BY impact_usd DESC";
 

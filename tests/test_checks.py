@@ -5,7 +5,7 @@ pinned by construction, not by whatever the live data happens to contain.
 """
 
 from app.checks import (
-    check_big_round_no_location,
+    check_big_round_missing_location,
     check_big_unverified,
     check_high_funding_few_employees,
     check_late_without_early,
@@ -143,12 +143,12 @@ def test_late_with_early_is_clean():
 
 def test_big_round_no_location_flags_when_location_missing():
     c = company(hq_location=None, rounds=[rnd("2020-01", "SERIES B", 50_000_000, lead=True)])
-    assert [i.company_id for i in check_big_round_no_location([c])] == ["x"]
+    assert [i.company_id for i in check_big_round_missing_location([c])] == ["x"]
 
 
 def test_big_round_with_location_is_clean():
     c = company(hq_location="Paris, France", rounds=[rnd("2020-01", "SERIES B", 50_000_000)])
-    assert list(check_big_round_no_location([c])) == []
+    assert list(check_big_round_missing_location([c])) == []
 
 
 # --- check 6: high funding, few employees ----------------------------------- #

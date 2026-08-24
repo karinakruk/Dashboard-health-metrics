@@ -44,6 +44,7 @@ SUMMARY_HEADERS = [
 QUEUE_HEADERS = [
     "run_date", "rule_id", "severity", "company_name", "company_url",
     "hq_country", "round_date", "round_type", "amount_usd", "impact_usd", "detail",
+    "round_year",
 ]
 
 
@@ -65,7 +66,8 @@ SELECT rule_id, severity, company_name, IFNULL(company_url,'') AS company_url,
        IFNULL(hq_country,'') AS hq_country, IFNULL(round_date,'') AS round_date,
        IFNULL(round_type,'') AS round_type,
        CAST(IFNULL(amount_usd,0) AS INT64) AS amount_usd,
-       CAST(IFNULL(impact_usd,0) AS INT64) AS impact_usd, detail
+       CAST(IFNULL(impact_usd,0) AS INT64) AS impact_usd, detail,
+       CAST(IFNULL(round_year,0) AS INT64) AS round_year
 FROM ranked WHERE rn <= {limit}
 ORDER BY impact_usd DESC
 """
@@ -191,6 +193,9 @@ def main() -> None:
                 "amount_usd": item.impact_usd if item.round_date else 0,
                 "impact_usd": item.impact_usd,
                 "detail": item.detail,
+                # The local harness has no structured city/round-year data;
+                # the warehouse path fills this in properly.
+                "round_year": (item.round_date or "")[:4],
             })
             del company  # slug comes from the queue item's own URL
 

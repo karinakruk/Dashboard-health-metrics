@@ -1,4 +1,4 @@
-"""The six funding data-health checks.
+"""The funding data-health checks.
 
 Each check is a pure function over the loaded companies and yields :class:`Issue`
 records. ``ALL_CHECKS`` ties each function to its display metadata, and
@@ -11,8 +11,10 @@ The checks (as specified by the data team):
 3. Round sequence out of order — an earlier-stage round after a later-stage one.
 4. A late-stage round with no earlier early-stage round (possible duplicate
    profile, or early rounds we missed).
-5. Big rounds on profiles without a location (so the amount can flow into the
-   ecosystem's value).
+5. Big rounds on profiles without a location (country and city are both
+   required). The warehouse path splits this into "city missing" vs "country
+   and city missing"; this harness only implements the latter, because the
+   local snapshot has no structured city field.
 6. Companies with high funding/valuation but fewer than 10 employees.
 """
 
@@ -179,7 +181,7 @@ def check_late_without_early(companies: Iterable[Company]) -> Iterator[Issue]:
             )
 
 
-def check_big_round_no_location(companies: Iterable[Company]) -> Iterator[Issue]:
+def check_big_round_missing_location(companies: Iterable[Company]) -> Iterator[Issue]:
     for c in companies:
         if c.has_location:
             continue
@@ -188,7 +190,7 @@ def check_big_round_no_location(companies: Iterable[Company]) -> Iterator[Issue]
             continue
         largest = max(big, key=lambda r: r.amount_usd)
         yield Issue(
-            check_id="big_round_no_location",
+            check_id="big_round_missing_location",
             company_id=c.id,
             company_name=c.name,
             detail=(
@@ -267,12 +269,12 @@ ALL_CHECKS: list[tuple[CheckMeta, object]] = [
     ),
     (
         CheckMeta(
-            "big_round_no_location",
+            "big_round_missing_location",
             "Big rounds without a location",
-            "Big rounds on profiles with no location set.",
+            "Big rounds on profiles with no country or city.",
             SERIOUS,
         ),
-        check_big_round_no_location,
+        check_big_round_missing_location,
     ),
     (
         CheckMeta(
