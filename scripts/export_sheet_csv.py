@@ -35,18 +35,10 @@ from app.fixqueue import build_queue
 from app.models import load_snapshot
 
 SUMMARY_FILE = "funding_health_summary.csv"
-QUEUE_FILE = "funding_health_queue.csv"
-
 SUMMARY_HEADERS = [
     "run_date", "rule_id", "severity", "issue_count",
     "companies_affected", "impact_usd_total",
 ]
-QUEUE_HEADERS = [
-    "run_date", "rule_id", "severity", "company_name", "company_url",
-    "hq_country", "round_date", "round_type", "amount_usd", "impact_usd", "detail",
-    "round_year",
-]
-
 
 PROJECT = "omega-dahlia-347111"
 LOCATION = "europe-west4"
@@ -56,22 +48,6 @@ SELECT rule_id, severity, issue_count, companies_affected,
        CAST(IFNULL(impact_usd_total, 0) AS INT64) AS impact_usd_total
 FROM data_health.summary ORDER BY issue_count DESC
 """
-
-QUEUE_SQL = """
-WITH ranked AS (
-  SELECT *, ROW_NUMBER() OVER (
-    PARTITION BY rule_id ORDER BY impact_usd DESC NULLS LAST) AS rn
-  FROM data_health.issues)
-SELECT rule_id, severity, company_name, IFNULL(company_url,'') AS company_url,
-       IFNULL(hq_country,'') AS hq_country, IFNULL(round_date,'') AS round_date,
-       IFNULL(round_type,'') AS round_type,
-       CAST(IFNULL(amount_usd,0) AS INT64) AS amount_usd,
-       CAST(IFNULL(impact_usd,0) AS INT64) AS impact_usd, detail,
-       CAST(IFNULL(round_year,0) AS INT64) AS round_year
-FROM ranked WHERE rn <= {limit}
-ORDER BY impact_usd DESC
-"""
-
 
 def bq_json(sql: str) -> list[dict]:
     """Run a query through the bq CLI and return rows as dicts."""
@@ -86,10 +62,9 @@ def bq_json(sql: str) -> list[dict]:
     return json.loads(out.stdout or "[]")
 
 
-def from_bigquery(out: Path, run_date: str, limit: int) -> tuple[int, int]:
+def from_bigquery(out: Path, run_date: str) -> int:
     """Write both CSVs from the materialized data_health.* tables."""
     summary = bq_json(SUMMARY_SQL)
-    queue = bq_json(QUEUE_SQL.format(limit=limit))
 
     summary_path = out / SUMMARY_FILE
     existing: list[dict] = []
@@ -104,13 +79,7 @@ def from_bigquery(out: Path, run_date: str, limit: int) -> tuple[int, int]:
         for r in summary:
             w.writerow({"run_date": run_date, **{k: r[k] for k in SUMMARY_HEADERS[1:]}})
 
-    with (out / QUEUE_FILE).open("w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=QUEUE_HEADERS)
-        w.writeheader()
-        for r in queue:
-            w.writerow({"run_date": run_date, **{k: r[k] for k in QUEUE_HEADERS[1:]}})
-
-    return len(summary), len(queue)
+    return len(summary)
 
 
 def default_out() -> Path:
@@ -134,9 +103,8 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
 
     if args.from_bigquery:
-        n_sum, n_queue = from_bigquery(out, args.run_date, args.limit)
+        n_sum = from_bigquery(out, args.run_date)
         print(f"Wrote {out / SUMMARY_FILE}  ({n_sum} rules)")
-        print(f"Wrote {out / QUEUE_FILE}  ({n_queue} rows, top {args.limit} per rule)")
         print("\nReal global data — the tab reads it while the sheet gids are blank.")
         return
 
@@ -184,35 +152,9 @@ def main() -> None:
         return max(years) if years else ""
 
     # ── queue: replaced wholesale ──
-    with (out / QUEUE_FILE).open("w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=QUEUE_HEADERS)
-        w.writeheader()
-        for item in queue:
-            company = by_id.get(
-                next((c.id for c in snapshot.companies if c.name == item.company_name), "")
-            )
-            w.writerow({
-                "run_date": args.run_date,
-                "rule_id": item.rule_id,
-                "severity": item.severity,
-                "company_name": item.company_name,
-                "company_url": item.company_url,
-                "hq_country": item.country or "",
-                "round_date": item.round_date or "",
-                "round_type": item.round_type or "",
-                "amount_usd": item.impact_usd if item.round_date else 0,
-                "impact_usd": item.impact_usd,
-                "detail": item.detail,
-                # Round-level issues use their own year; company-level ones use
-                # the company's latest round year, matching what the SQL emits.
-                "round_year": (item.round_date or "")[:4] or latest_year(item.company_name),
-            })
-            del company  # slug comes from the queue item's own URL
-
     runs = len({r["run_date"] for r in existing} | {args.run_date})
     print(f"Wrote {summary_path}  ({len(existing) + len(new_rows)} rows, {runs} run(s))")
-    print(f"Wrote {out / QUEUE_FILE}  ({len(queue)} rows)")
-    print("\nThe Funding Data tab reads these automatically while the sheet gids are blank.")
+    print("\nThe Data Health tab reads this automatically when USE_LOCAL_DATA is true.")
 
 
 if __name__ == "__main__":

@@ -40,11 +40,11 @@ var PROJECT_ID = 'omega-dahlia-347111';
 // The summary tab APPENDS one dated row per rule per run, so the trend builds
 // up on its own. The queue tab is REPLACED each run — it is a worklist, not history.
 var SHEET_SUMMARY = 'funding_health_summary';
-var SHEET_QUEUE = 'funding_health_queue';
 
-// Rows per rule kept in the fix queue. The full set stays in BigQuery; Sheets
-// is a transport for the actionable slice, not a mirror of the warehouse.
-var QUEUE_LIMIT_PER_RULE = 300;
+// Only the per-check summary is exported. The dashboard reports counts and their
+// trend; the records themselves are worked in the Dealroom app, which each check
+// links to directly — so shipping a truncated copy of them into Sheets added a
+// second, staler source of truth for no gain.
 
 var SUMMARY_SQL =
   "SELECT " +
@@ -52,24 +52,6 @@ var SUMMARY_SQL =
   "  rule_id, severity, issue_count, companies_affected, impact_usd_total " +
   "FROM data_health.summary " +
   "ORDER BY issue_count DESC";
-
-var QUEUE_SQL =
-  "WITH ranked AS ( " +
-  "  SELECT *, ROW_NUMBER() OVER ( " +
-  "      PARTITION BY rule_id ORDER BY impact_usd DESC NULLS LAST) AS rn " +
-  "  FROM data_health.issues) " +
-  "SELECT " +
-  "  FORMAT_DATE('%Y-%m-%d', CURRENT_DATE()) AS run_date, " +
-  "  rule_id, severity, company_name, company_url, " +
-  "  IFNULL(hq_country, '') AS hq_country, " +
-  "  IFNULL(round_date, '') AS round_date, " +
-  "  IFNULL(round_type, '') AS round_type, " +
-  "  IFNULL(amount_usd, 0) AS amount_usd, " +
-  "  IFNULL(impact_usd, 0) AS impact_usd, " +
-  "  detail, " +
-  "  IFNULL(round_year, 0) AS round_year " +
-  "FROM ranked WHERE rn <= " + QUEUE_LIMIT_PER_RULE + " " +
-  "ORDER BY impact_usd DESC";
 
 /**
  * SMOKE TEST — run this FIRST, before anything else works.
@@ -158,13 +140,8 @@ function runStatement(sql) {
 /** Copies the current BigQuery results into the Sheet (stage B). */
 function refreshFundingHealth() {
   var summary = runQuery(SUMMARY_SQL);
-  var queue = runQuery(QUEUE_SQL);
-
-  appendRows(SHEET_SUMMARY, summary);   // history: keeps every run
-  replaceRows(SHEET_QUEUE, queue);      // worklist: current run only
-
-  Logger.log('Funding health refreshed: %s summary rows, %s queue rows',
-             summary.rows.length, queue.rows.length);
+  appendRows(SHEET_SUMMARY, summary);   // history: one dated row per check per run
+  Logger.log('Data health refreshed: %s summary rows', summary.rows.length);
 }
 
 /** Run a query and return {headers: [...], rows: [[...]]}, following pagination. */
