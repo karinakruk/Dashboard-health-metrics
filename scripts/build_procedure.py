@@ -49,6 +49,13 @@ def body(path: Path) -> tuple[list[str], list[str]]:
     for line in path.read_text().splitlines():
         stripped = line.strip()
         if stripped.startswith("DECLARE "):
+            # Hoisting is line-based, so a DECLARE split across lines would have
+            # its value left behind in the body — which BigQuery only reports as
+            # a confusing syntax error much later. Fail here instead.
+            code = stripped.split("--")[0].rstrip()
+            if not code.endswith(";"):
+                raise SystemExit(
+                    f"{path.name}: DECLARE must be on one line (ends without ';'):\n  {stripped}")
             declares.append(line)
         elif stripped.startswith("CREATE SCHEMA"):
             continue  # created outside the procedure

@@ -9,35 +9,63 @@ the **Data Health** tab of
 (people, tagging, locations, …) drop in alongside it — each contributes its own
 rules to the same `data_health.issues` table and the same fix queue.
 
-## What it checks — funding
+## What it checks
 
-Each check's count is verified to equal the linked search in the Dealroom app, so
-the dashboard and the app never disagree.
+Eight checks, in two groups. Every count is the whole database, not a sample.
 
-| # | Check | Definition | Count |
-|---|-------|-----------|------:|
-| 1 | **Rounds without a round type** | Funding rounds with no round type set. Links to `rounds/anyof_NOT SET`. | 36,543 |
-| 2 | **Big rounds not verified** | Funding rounds ≥ $10M carrying Dealroom's literal `Unverified` status. | 10,420 |
-| 3 | **Big funding, ≤10 staff** | ≥ $100M raised, last funding 2025+, ≤10 employees, excluding mature companies, post-acquisition shells and pre-1990 launches. | 115 |
-| 4 | **No location** | Funded 2025+ with no country set. Equivalent to the app's `regions/not_Global`. | 56 |
+**Funding**
 
-Two principles the checks are built on, both learned the hard way:
+| Check | Definition | Count |
+|-------|-----------|------:|
+| Rounds without a round type | Funding rounds with no round type set | 36,536 |
+| Big rounds not verified | Rounds ≥ $10M carrying Dealroom's `Unverified` status | 10,419 |
+| Big funding, ≤10 staff | ≥ $100M raised recently, ≤10 employees, excluding mature, post-acquisition and pre-1990 | 152 |
+| No location | Funded recently with no country set — equals the app's `regions/not_Global` | 117 |
 
-* **Read Dealroom's flags, don't re-derive them.** `flg_is_verified` is the
-  verification status; `flg_is_funding_round` separates rounds from
-  acquisitions, post-IPO instruments and secondaries. Hand-rolled
-  approximations of both were wrong — the second overstated every round-level
-  check by ~4,300 rows.
-* **A check is only as trustworthy as its link.** Where a rule cannot be
-  expressed as an app filter, either the rule is redefined so it can be, or it
-  is dropped. A count that disagrees with its own link is worse than no link.
+**Profile completeness**
 
-Known deviation: this check reports 115 for big-funding/low-headcount where the
-app reports 137. Warehouse staleness, NULL launch years, NULL employees and the
-mature/acquisition exclusions have all been ruled out as causes; one of
-employees, total_funding or last_funding_year is measured differently in the app
-than in the warehouse, and closing it needs a company present in the app's list
-but absent from ours.
+| Check | Definition | Count |
+|-------|-----------|------:|
+| VC-backed, no founder | VC-backed with no founder recorded | 123,206 |
+| Investor, no key people | Investors with nobody in key people | 62,791 |
+| VC-backed, no description | Neither tagline nor description | 8,475 |
+| VC-backed, no web presence | Neither website nor LinkedIn | 3,872 |
+
+Three principles, each learned from getting it wrong first:
+
+* **Read Dealroom's flags, don't re-derive them.** `flg_is_verified`,
+  `flg_is_funding_round`, `flg_is_vcbacked`. Hand-rolled approximations of the
+  first two were both wrong; the second overstated every round-level check by
+  ~4,300 rows.
+* **A check is only as trustworthy as its link.** Where the app cannot express a
+  rule, either the rule is redefined so it can be, or it ships with no link and
+  a stated reason. A count that disagrees with its own link is worse than none.
+* **Gates must roll, not sit on a fixed year.** A hard `2025` gate lets records
+  age out of the window and be counted as *fixed* when nothing was fixed. The
+  window is 24 rolling months, and the dashboard derives its link years from the
+  same rule so the two cannot drift.
+
+## Measuring progress
+
+`data_health.issues` is rebuilt each run, so on its own it can only ever say
+what is broken now. Two extra steps make improvement observable:
+
+* `15_history.sql` appends every run to `issue_history` (partitioned by date,
+  keyed by a stable `issue_key`) before the rebuild overwrites it.
+* `25_movement.sql` diffs the two newest runs into **fixed / newly flagged /
+  persisting**.
+
+That distinction matters: a net figure cancels work against decay. 210 fixed and
+153 newly broken shows up as "−57", and an even split as "no change" — so a team
+fixing hundreds could see a dashboard reporting nothing happened.
+
+The Dealroom app cannot do this at any price: a search returns what matches now,
+and nothing stores what matched yesterday.
+
+Known deviation: `Big funding, ≤10 staff` reports 152 where the app reports 137
+for a comparable filter. Warehouse staleness, NULL launch years, NULL employees
+and the mature/acquisition exclusions are all ruled out; one of employees,
+total_funding or last_funding_year is measured differently in the app.
 
 ## Architecture
 
@@ -50,7 +78,9 @@ client.
 
 ```
 BigQuery (raw)
-  └── sql/10_issues.sql    four checks → data_health.issues  (one row per issue)
+  └── sql/10_issues.sql    eight checks → data_health.issues (current state)
+  └── sql/15_history.sql   append that run → data_health.issue_history
+  └── sql/25_movement.sql  diff newest two runs → data_health.movement
   └── sql/20_summary.sql   rollups    → data_health.summary / _by_country / runs
         └── apps_script/funding_health.gs   (daily trigger)
               → Sheet tabs: funding_health_summary (appends, gives the trend)

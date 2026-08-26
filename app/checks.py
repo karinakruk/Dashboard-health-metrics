@@ -6,15 +6,24 @@ records. ``ALL_CHECKS`` ties each function to its display metadata, and
 
 The checks (as specified by the data team):
 
+Funding checks (reproduced here approximately):
 1. Big rounds (>=$10M) that are not verified.
 2. Rounds without a round type (should not happen).
 3. Recently funded companies with no location set.
 4. Companies with high funding but 10 or fewer employees.
 
-Note: the warehouse (sql/10_issues.sql) is the source of truth for these rules.
-This harness reproduces them approximately for offline development — it gates
-the location and headcount checks on the snapshot's coarser fields rather than
-on last-funding-year — so counts here will not match production.
+Profile checks (warehouse-only, registered but inert here):
+5. VC-backed companies with no founder recorded.
+6. VC-backed companies with neither a website nor a LinkedIn page.
+7. Investors with nobody in key people.
+8. VC-backed companies with neither a tagline nor a description.
+
+The warehouse (sql/10_issues.sql) is the source of truth. This harness gates the
+location and headcount checks on the snapshot's coarser fields, and the profile
+checks need founder/investor/web data the snapshot does not carry, so counts here
+will not match production. Every rule is still registered: load_export() iterates
+ALL_CHECKS, so an unregistered rule would have its warehouse rows silently
+dropped.
 """
 
 from __future__ import annotations
@@ -141,6 +150,31 @@ def check_high_funding_few_employees(companies: Iterable[Company]) -> Iterator[I
         )
 
 
+def check_vc_no_founder(companies: Iterable[Company]) -> Iterator[Issue]:
+    """VC-backed companies with no founder recorded.
+
+    Warehouse-only: the snapshot carries no founder or VC-backed data, so this
+    yields nothing locally. Registered because load_export() iterates
+    ALL_CHECKS, and an unregistered rule would have its rows silently dropped.
+    """
+    return iter(())
+
+
+def check_vc_no_web_presence(companies: Iterable[Company]) -> Iterator[Issue]:
+    """VC-backed companies with neither website nor LinkedIn. Warehouse-only."""
+    return iter(())
+
+
+def check_investor_no_people(companies: Iterable[Company]) -> Iterator[Issue]:
+    """Investors with nobody in key people. Warehouse-only."""
+    return iter(())
+
+
+def check_vc_no_description(companies: Iterable[Company]) -> Iterator[Issue]:
+    """VC-backed companies with neither tagline nor description. Warehouse-only."""
+    return iter(())
+
+
 ALL_CHECKS: list[tuple[CheckMeta, object]] = [
     (
         CheckMeta(
@@ -173,10 +207,30 @@ ALL_CHECKS: list[tuple[CheckMeta, object]] = [
         CheckMeta(
             "high_funding_few_employees",
             "High funding, few employees",
-            "Raised >= $100M since 2025 but 10 or fewer employees.",
+            "Raised >= $100M recently but 10 or fewer employees.",
             SERIOUS,
         ),
         check_high_funding_few_employees,
+    ),
+    (
+        CheckMeta("vc_no_founder", "VC-backed, no founder",
+                  "VC-backed companies with no founder recorded.", WARNING),
+        check_vc_no_founder,
+    ),
+    (
+        CheckMeta("vc_no_web_presence", "VC-backed, no web presence",
+                  "VC-backed with neither a website nor a LinkedIn page.", SERIOUS),
+        check_vc_no_web_presence,
+    ),
+    (
+        CheckMeta("investor_no_people", "Investor, no key people",
+                  "Investors with nobody recorded in key people.", WARNING),
+        check_investor_no_people,
+    ),
+    (
+        CheckMeta("vc_no_description", "VC-backed, no description",
+                  "VC-backed with neither a tagline nor a description.", WARNING),
+        check_vc_no_description,
     ),
 ]
 

@@ -80,7 +80,7 @@ def test_universe_and_queue(tmp_path):
 def test_rules_with_no_rows_still_present(tmp_path):
     report, _q, _c = load_export(write(tmp_path))
     # Every check must appear even when the export carries none of its rows.
-    assert len(report.results) == 4
+    assert len(report.results) == 8
     assert report.result("high_funding_few_employees").count == 0
 
 

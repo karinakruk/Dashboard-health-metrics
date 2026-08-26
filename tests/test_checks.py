@@ -124,9 +124,18 @@ def test_snapshot_runs_and_every_check_fires():
     report = run_checks(load_snapshot().companies)
     assert report.total_companies == 9
     assert report.total_issues > 0
-    # The curated snapshot is built so every check has at least one hit.
+    # The snapshot fires the funding checks. The profile checks (founders, web
+    # presence, descriptions, investor people) are warehouse-only — the snapshot
+    # carries none of those fields — so they are expected to stay silent.
+    warehouse_only = {
+        "vc_no_founder", "vc_no_web_presence",
+        "investor_no_people", "vc_no_description",
+    }
     for r in report.results:
-        assert r.count > 0, f"{r.meta.id} did not fire on the snapshot"
+        if r.meta.id in warehouse_only:
+            assert r.count == 0, f"{r.meta.id} unexpectedly fired locally"
+        else:
+            assert r.count > 0, f"{r.meta.id} did not fire on the snapshot"
     assert 0 <= report.health_score <= 100
 
 

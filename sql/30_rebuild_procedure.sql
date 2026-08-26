@@ -21,7 +21,7 @@ BEGIN
   DECLARE high_funding_usd        INT64   DEFAULT 100000000;  -- matches total_funding_min in the app link
   DECLARE min_launch_year         INT64   DEFAULT 1990;
   DECLARE rolling_window_months   INT64   DEFAULT 24;
-  DECLARE recent_funding_year     INT64   DEFAULT
+  DECLARE recent_funding_year     INT64   DEFAULT EXTRACT(YEAR FROM DATE_SUB(CURRENT_DATE(), INTERVAL rolling_window_months MONTH));
   DECLARE employee_ceiling        INT64   DEFAULT 10;  -- inclusive, matching the app's {1, 2-10} buckets
 
     -- ── from 10_issues.sql ──
@@ -44,7 +44,6 @@ BEGIN
   -- flatters itself. Rolling keeps "fixed" honest.
   -- NOTE: the app links in the dashboard hardcode a year, so when this window
   -- rolls past a year boundary those links need the same bump.
-    EXTRACT(YEAR FROM DATE_SUB(CURRENT_DATE(), INTERVAL rolling_window_months MONTH));
 
 
   CREATE OR REPLACE TABLE data_health.issues
@@ -84,6 +83,11 @@ BEGIN
       -- entities.last_funding_round_id: that pointer does not reliably reference
       -- the most recent transaction, and trusting it undercounted this check by
       -- roughly a third (81 rows instead of 115).
+      e.flg_is_vcbacked                      AS is_vc_backed,
+      e.website                              AS website,
+      e.linkedin                             AS linkedin,
+      e.tagline                              AS tagline,
+      e.about                                AS about,
       lr.round                               AS last_round_type,
       CAST(ly.last_funding_year AS INT64)    AS last_funding_year
     FROM dealroom_intelligence.entities e
@@ -119,6 +123,23 @@ BEGIN
     WHERE f.flg_is_funding_round
   ),
   -- ---------------------------------------------------------------------------
+  -- People linked to an entity. flg_is_founder marks the founder relationship;
+  -- any row at all means the entity has at least one person attached.
+  entity_founders AS (
+    SELECT DISTINCT entity_id
+    FROM dealroom_intelligence.people_organizations
+    WHERE flg_is_founder
+  ),
+  entity_people AS (
+    SELECT DISTINCT entity_id FROM dealroom_intelligence.people_organizations
+  ),
+  -- Which entities are investors. investors.bobject_investor_id keys back to
+  -- entities.id.
+  investor_entities AS (
+    SELECT DISTINCT CAST(bobject_investor_id AS STRING) AS company_id
+    FROM dealroom_intelligence.investors
+  ),
+
   -- Rounds with a normalised type, used by every round-level check.
   r AS (
     SELECT
@@ -134,7 +155,7 @@ BEGIN
     FROM r GROUP BY company_id
   ),
 
-  -- =========================== the four checks ==============================
+  -- =========================== the eight checks =============================
 
   -- 1. Big rounds (>=$10M) carrying the literal "Unverified" status.
   --    Reads is_verified as recorded — no inference, and no round-type carve-out
@@ -216,6 +237,68 @@ BEGIN
       AND IFNULL(c.last_round_type, '') != 'ACQUISITION'
       AND c.last_funding_year >= recent_funding_year
       AND c.launch_year >= min_launch_year
+  ),
+
+  -- 7. VC-backed companies with no founder recorded.
+  --    A funded company with no founder is a materially incomplete profile.
+  vc_no_founder AS (
+    SELECT
+      'vc_no_founder', 'warning',
+      c.company_id, c.company_name, c.company_url, c.hq_country,
+      CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS STRING), c.total_funding_usd,
+      IFNULL(c.total_funding_usd, 0),
+      'VC-backed but no founder recorded.',
+      c.last_funding_year
+    FROM companies c
+    LEFT JOIN entity_founders f ON f.entity_id = CAST(c.company_id AS INT64)
+    WHERE c.is_vc_backed AND f.entity_id IS NULL
+  ),
+
+  -- 8. VC-backed companies with neither a website nor a LinkedIn page.
+  --    With no web presence at all the profile can barely be identified, let
+  --    alone enriched — a stronger signal than either field missing on its own.
+  vc_no_web_presence AS (
+    SELECT
+      'vc_no_web_presence', 'serious',
+      c.company_id, c.company_name, c.company_url, c.hq_country,
+      CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS STRING), c.total_funding_usd,
+      IFNULL(c.total_funding_usd, 0),
+      'VC-backed but has neither a website nor a LinkedIn page.',
+      c.last_funding_year
+    FROM companies c
+    WHERE c.is_vc_backed
+      AND c.website IS NULL AND c.linkedin IS NULL
+  ),
+
+  -- 9. Investors with nobody in key people.
+  investor_no_people AS (
+    SELECT
+      'investor_no_people', 'warning',
+      c.company_id, c.company_name, c.company_url, c.hq_country,
+      CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS STRING), c.total_funding_usd,
+      IFNULL(c.total_funding_usd, 0),
+      'Investor with no key people recorded.',
+      c.last_funding_year
+    FROM companies c
+    JOIN investor_entities ie USING (company_id)
+    LEFT JOIN entity_people p ON p.entity_id = CAST(c.company_id AS INT64)
+    WHERE p.entity_id IS NULL
+  ),
+
+  -- 10. VC-backed companies with neither a tagline nor a description.
+  --     Scoped to VC-backed deliberately: unscoped this is 1.25M profiles, which
+  --     is a backlog rather than a worklist.
+  vc_no_description AS (
+    SELECT
+      'vc_no_description', 'warning',
+      c.company_id, c.company_name, c.company_url, c.hq_country,
+      CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS STRING), c.total_funding_usd,
+      IFNULL(c.total_funding_usd, 0),
+      'VC-backed but has neither a tagline nor a description.',
+      c.last_funding_year
+    FROM companies c
+    WHERE c.is_vc_backed
+      AND c.tagline IS NULL AND c.about IS NULL
   )
 
   SELECT
@@ -226,6 +309,10 @@ BEGIN
     UNION ALL SELECT * FROM missing_round_type
     UNION ALL SELECT * FROM missing_location
     UNION ALL SELECT * FROM high_funding_few_employees
+    UNION ALL SELECT * FROM vc_no_founder
+    UNION ALL SELECT * FROM vc_no_web_presence
+    UNION ALL SELECT * FROM investor_no_people
+    UNION ALL SELECT * FROM vc_no_description
   );
   -- No ORDER BY here: a clustered CTAS cannot be ordered, and clustering by
   -- rule_id is what makes the per-rule reads cheap. Ranking by impact happens in
