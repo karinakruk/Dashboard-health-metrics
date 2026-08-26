@@ -1,4 +1,4 @@
-"""Generate sql/30_rebuild_procedure.sql from the two check files.
+"""Generate sql/30_rebuild_procedure.sql from the check files.
 
 Wrapping the checks in a BigQuery stored procedure means the SQL has exactly
 one definition (these files), while the daily driver — Apps Script — only has
@@ -15,7 +15,11 @@ OUT = ROOT / "sql" / "30_rebuild_procedure.sql"
 
 HEADER = """-- ============================================================================
 -- GENERATED FILE — do not edit by hand.
---   Source: sql/10_issues.sql + sql/20_summary.sql
+--   Source, in run order:
+--     10_issues.sql   rebuild the current issue set
+--     15_history.sql  append it to issue_history (before anything overwrites it)
+--     25_movement.sql diff the two newest runs -> fixed / new / persisting
+--     20_summary.sql  per-rule counts, joined to that movement
 --   Rebuild: PYTHONPATH=. python scripts/build_procedure.py
 --
 -- Creates data_health.rebuild(), which recomputes every check. Run this file
@@ -56,7 +60,7 @@ def body(path: Path) -> tuple[list[str], list[str]]:
 def main() -> None:
     all_declares: list[str] = []
     all_statements: list[str] = []
-    for name in ("10_issues.sql", "20_summary.sql"):
+    for name in ("10_issues.sql", "15_history.sql", "25_movement.sql", "20_summary.sql"):
         declares, rest = body(ROOT / "sql" / name)
         all_declares += declares
         all_statements += [f"", f"  -- ── from {name} ──"] + rest

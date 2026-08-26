@@ -14,7 +14,15 @@
 DECLARE big_round_threshold_usd INT64   DEFAULT 10000000;
 DECLARE high_funding_usd        INT64   DEFAULT 100000000;  -- matches total_funding_min in the app link
 DECLARE min_launch_year         INT64   DEFAULT 1990;
-DECLARE recent_funding_year     INT64   DEFAULT 2025;  -- 'recently funded', matches last_funding_year_min in the app link
+-- "Recently funded" is a ROLLING window, not a fixed year. With a hard 2025
+-- gate, companies age out of the window as time passes and the movement report
+-- would count them as fixed when nothing was fixed — a progress metric that
+-- flatters itself. Rolling keeps "fixed" honest.
+-- NOTE: the app links in the dashboard hardcode a year, so when this window
+-- rolls past a year boundary those links need the same bump.
+DECLARE rolling_window_months   INT64   DEFAULT 24;
+DECLARE recent_funding_year     INT64   DEFAULT
+  EXTRACT(YEAR FROM DATE_SUB(CURRENT_DATE(), INTERVAL rolling_window_months MONTH));
 DECLARE employee_ceiling        INT64   DEFAULT 10;  -- inclusive, matching the app's {1, 2-10} buckets
 
 CREATE SCHEMA IF NOT EXISTS data_health;

@@ -49,7 +49,10 @@ var SHEET_SUMMARY = 'funding_health_summary';
 var SUMMARY_SQL =
   "SELECT " +
   "  FORMAT_DATE('%Y-%m-%d', CURRENT_DATE()) AS run_date, " +
-  "  rule_id, severity, issue_count, companies_affected, impact_usd_total " +
+  "  rule_id, severity, issue_count, companies_affected, impact_usd_total, " +
+  "  IFNULL(CAST(no_longer_flagged AS STRING), '') AS no_longer_flagged, " +
+  "  IFNULL(CAST(newly_flagged AS STRING), '') AS newly_flagged, " +
+  "  IFNULL(CAST(persisting AS STRING), '') AS persisting " +
   "FROM data_health.summary " +
   "ORDER BY issue_count DESC";
 

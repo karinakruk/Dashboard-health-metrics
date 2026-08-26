@@ -1,6 +1,10 @@
 -- ============================================================================
 -- GENERATED FILE — do not edit by hand.
---   Source: sql/10_issues.sql + sql/20_summary.sql
+--   Source, in run order:
+--     10_issues.sql   rebuild the current issue set
+--     15_history.sql  append it to issue_history (before anything overwrites it)
+--     25_movement.sql diff the two newest runs -> fixed / new / persisting
+--     20_summary.sql  per-rule counts, joined to that movement
 --   Rebuild: PYTHONPATH=. python scripts/build_procedure.py
 --
 -- Creates data_health.rebuild(), which recomputes every check. Run this file
@@ -16,7 +20,8 @@ BEGIN
   DECLARE big_round_threshold_usd INT64   DEFAULT 10000000;
   DECLARE high_funding_usd        INT64   DEFAULT 100000000;  -- matches total_funding_min in the app link
   DECLARE min_launch_year         INT64   DEFAULT 1990;
-  DECLARE recent_funding_year     INT64   DEFAULT 2025;  -- 'recently funded', matches last_funding_year_min in the app link
+  DECLARE rolling_window_months   INT64   DEFAULT 24;
+  DECLARE recent_funding_year     INT64   DEFAULT
   DECLARE employee_ceiling        INT64   DEFAULT 10;  -- inclusive, matching the app's {1, 2-10} buckets
 
     -- ── from 10_issues.sql ──
@@ -33,6 +38,13 @@ BEGIN
   -- Run `sql/00_schema_check.sql` first — it verifies the assumed columns exist.
   -- ============================================================================
 
+  -- "Recently funded" is a ROLLING window, not a fixed year. With a hard 2025
+  -- gate, companies age out of the window as time passes and the movement report
+  -- would count them as fixed when nothing was fixed — a progress metric that
+  -- flatters itself. Rolling keeps "fixed" honest.
+  -- NOTE: the app links in the dashboard hardcode a year, so when this window
+  -- rolls past a year boundary those links need the same bump.
+    EXTRACT(YEAR FROM DATE_SUB(CURRENT_DATE(), INTERVAL rolling_window_months MONTH));
 
 
   CREATE OR REPLACE TABLE data_health.issues
@@ -219,6 +231,104 @@ BEGIN
   -- rule_id is what makes the per-rule reads cheap. Ranking by impact happens in
   -- 20_summary.sql and in the Apps Script export, which is where it matters.
 
+    -- ── from 15_history.sql ──
+  -- ============================================================================
+  -- Issue history — the memory that makes "how many did we fix?" answerable.
+  --
+  -- data_health.issues is CREATE OR REPLACE, so each run destroys the last. This
+  -- appends every run's rows to a permanent, partitioned table BEFORE the rebuild
+  -- overwrites them, keyed by a stable identity so consecutive runs can be diffed.
+  --
+  -- Run order inside data_health.rebuild():
+  --     10_issues.sql   →  rebuild data_health.issues   (current state)
+  --     15_history.sql  →  append it to issue_history   (this file)
+  --     20_summary.sql  →  roll up counts + movement
+  --
+  -- Why this cannot come from the Dealroom app: a search only ever returns what
+  -- matches *now*. Nothing stores what matched yesterday, so progress is not
+  -- observable there at any price.
+  --
+  -- Size: ~57k rows per run, so a year of daily runs is ~20M rows — a few hundred
+  -- MB. Partitioning by run_date keeps the diff to two partitions rather than a
+  -- full scan.
+  -- ============================================================================
+
+  CREATE TABLE IF NOT EXISTS data_health.issue_history (
+    run_date     DATE,
+    rule_id      STRING,
+    -- Stable identity for the flagged thing: the round for round-level checks,
+    -- the company for company-level ones. Diffing consecutive runs on this is
+    -- what separates "fixed" from "newly broken".
+    issue_key    STRING,
+    company_id   STRING,
+    company_name STRING,
+    company_url  STRING,
+    hq_country   STRING,
+    impact_usd   INT64
+  )
+  PARTITION BY run_date
+  CLUSTER BY rule_id;
+
+  -- Idempotent: re-running on the same day replaces that day rather than
+  -- double-counting it.
+  DELETE FROM data_health.issue_history WHERE run_date = CURRENT_DATE();
+
+  INSERT INTO data_health.issue_history
+    (run_date, rule_id, issue_key, company_id, company_name, company_url,
+     hq_country, impact_usd)
+  SELECT
+    CURRENT_DATE()                                    AS run_date,
+    rule_id,
+    -- Round-level issues are identified by the round; company-level ones by the
+    -- company. Prefixed so the two can never collide.
+    CASE WHEN round_id IS NOT NULL THEN CONCAT('round:', round_id)
+         ELSE CONCAT('company:', company_id) END      AS issue_key,
+    company_id, company_name, company_url, hq_country,
+    IFNULL(impact_usd, 0)                             AS impact_usd
+  FROM data_health.issues;
+
+    -- ── from 25_movement.sql ──
+  -- ============================================================================
+  -- Movement between the two most recent runs: what got fixed, what appeared,
+  -- and what nobody has touched.
+  --
+  -- Reads only issue_history, and only its two newest partitions.
+  --
+  -- Caveat on "fixed": it means "no longer flagged". A record also leaves the set
+  -- if it was deleted or merged, so this measures the problem going away rather
+  -- than proving human effort. Checks gated on recency (see rolling_window_months
+  -- in 10_issues.sql) would otherwise let rows age out of the window and count as
+  -- fixed — which is why that gate rolls rather than sitting on a fixed year.
+  -- ============================================================================
+
+  CREATE OR REPLACE TABLE data_health.movement AS
+  WITH runs AS (
+    SELECT DISTINCT run_date FROM data_health.issue_history
+  ),
+  latest AS (SELECT MAX(run_date) AS d FROM runs),
+  previous AS (
+    SELECT MAX(run_date) AS d FROM runs WHERE run_date < (SELECT d FROM latest)
+  ),
+  now_set AS (
+    SELECT rule_id, issue_key FROM data_health.issue_history
+    WHERE run_date = (SELECT d FROM latest)
+  ),
+  before_set AS (
+    SELECT rule_id, issue_key FROM data_health.issue_history
+    WHERE run_date = (SELECT d FROM previous)
+  )
+  SELECT
+    (SELECT d FROM latest)                                   AS run_date,
+    (SELECT d FROM previous)                                 AS compared_to,
+    COALESCE(n.rule_id, b.rule_id)                           AS rule_id,
+    COUNTIF(b.issue_key IS NULL)                             AS newly_flagged,
+    COUNTIF(n.issue_key IS NULL)                             AS no_longer_flagged,
+    COUNTIF(n.issue_key IS NOT NULL AND b.issue_key IS NOT NULL) AS persisting
+  FROM now_set n
+  FULL OUTER JOIN before_set b
+    ON n.rule_id = b.rule_id AND n.issue_key = b.issue_key
+  GROUP BY rule_id;
+
     -- ── from 20_summary.sql ──
   -- ============================================================================
   -- Aggregates for the dashboard headline and slices. Reads only the small
@@ -227,14 +337,21 @@ BEGIN
 
   CREATE OR REPLACE TABLE data_health.summary AS
   SELECT
-    rule_id,
-    ANY_VALUE(severity)              AS severity,
-    COUNT(*)                         AS issue_count,
-    COUNT(DISTINCT company_id)       AS companies_affected,
-    SUM(impact_usd)                  AS impact_usd_total,
-    MAX(run_at)                      AS run_at
-  FROM data_health.issues
-  GROUP BY rule_id;
+    i.rule_id,
+    ANY_VALUE(i.severity)              AS severity,
+    COUNT(*)                           AS issue_count,
+    COUNT(DISTINCT i.company_id)       AS companies_affected,
+    SUM(i.impact_usd)                  AS impact_usd_total,
+    MAX(i.run_at)                      AS run_at,
+    -- Movement since the previous run. NULL until a second run exists, which the
+    -- dashboard renders as "awaiting 2nd run" rather than as zero — no movement
+    -- and no comparison yet are different things.
+    ANY_VALUE(m.newly_flagged)         AS newly_flagged,
+    ANY_VALUE(m.no_longer_flagged)     AS no_longer_flagged,
+    ANY_VALUE(m.persisting)            AS persisting
+  FROM data_health.issues i
+  LEFT JOIN data_health.movement m USING (rule_id)
+  GROUP BY i.rule_id;
 
   -- Slice layer: issue counts by country, so "all the data" is represented as
   -- aggregates rather than as an unrenderable row dump.
