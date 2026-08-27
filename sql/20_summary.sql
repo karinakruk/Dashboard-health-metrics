@@ -16,9 +16,13 @@ SELECT
   -- and no comparison yet are different things.
   ANY_VALUE(m.newly_flagged)         AS newly_flagged,
   ANY_VALUE(m.no_longer_flagged)     AS no_longer_flagged,
-  ANY_VALUE(m.persisting)            AS persisting
+  ANY_VALUE(m.persisting)            AS persisting,
+  -- Fingerprint of the SQL that produced this run's rows. Movement between two
+  -- runs only means something if this matches on both.
+  ANY_VALUE(v.rule_version)          AS rule_version
 FROM data_health.issues i
 LEFT JOIN data_health.movement m USING (rule_id)
+LEFT JOIN data_health.rule_versions v USING (rule_id)
 GROUP BY i.rule_id;
 
 -- Slice layer: issue counts by country, so "all the data" is represented as

@@ -59,7 +59,8 @@ var SUMMARY_SQL =
   "  rule_id, severity, issue_count, companies_affected, impact_usd_total, " +
   "  IFNULL(CAST(no_longer_flagged AS STRING), '') AS no_longer_flagged, " +
   "  IFNULL(CAST(newly_flagged AS STRING), '') AS newly_flagged, " +
-  "  IFNULL(CAST(persisting AS STRING), '') AS persisting " +
+  "  IFNULL(CAST(persisting AS STRING), '') AS persisting, " +
+  "  IFNULL(rule_version, '') AS rule_version " +
   "FROM data_health.summary " +
   "ORDER BY issue_count DESC";
 

@@ -340,6 +340,20 @@ BEGIN
   -- rule_id is what makes the per-rule reads cheap. Ranking by impact happens in
   -- 20_summary.sql and in the Apps Script export, which is where it matters.
 
+    -- ── generated: fingerprint of each check's SQL ──
+    -- Lets the dashboard tell "this improved" apart from "this was redefined".
+    CREATE OR REPLACE TABLE data_health.rule_versions AS
+    SELECT * FROM UNNEST([
+      STRUCT('big_unverified' AS rule_id, '46ebeeebf207' AS rule_version),
+      STRUCT('high_funding_few_employees' AS rule_id, '361ad51d9906' AS rule_version),
+      STRUCT('missing_location' AS rule_id, '3639930c9667' AS rule_version),
+      STRUCT('missing_round_type' AS rule_id, '7390fdb56641' AS rule_version),
+      STRUCT('vc_investor_no_people' AS rule_id, 'aa28f0cd48d0' AS rule_version),
+      STRUCT('vc_no_description' AS rule_id, '8f92d3593473' AS rule_version),
+      STRUCT('vc_no_founder' AS rule_id, '8a2bedcacdfd' AS rule_version),
+      STRUCT('vc_no_web_presence' AS rule_id, 'bdbfea9cba6d' AS rule_version)
+    ]);
+
     -- ── from 15_history.sql ──
   -- ============================================================================
   -- Issue history — the memory that makes "how many did we fix?" answerable.
@@ -457,9 +471,13 @@ BEGIN
     -- and no comparison yet are different things.
     ANY_VALUE(m.newly_flagged)         AS newly_flagged,
     ANY_VALUE(m.no_longer_flagged)     AS no_longer_flagged,
-    ANY_VALUE(m.persisting)            AS persisting
+    ANY_VALUE(m.persisting)            AS persisting,
+    -- Fingerprint of the SQL that produced this run's rows. Movement between two
+    -- runs only means something if this matches on both.
+    ANY_VALUE(v.rule_version)          AS rule_version
   FROM data_health.issues i
   LEFT JOIN data_health.movement m USING (rule_id)
+  LEFT JOIN data_health.rule_versions v USING (rule_id)
   GROUP BY i.rule_id;
 
   -- Slice layer: issue counts by country, so "all the data" is represented as

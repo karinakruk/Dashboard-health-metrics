@@ -47,6 +47,9 @@ SUMMARY_HEADERS = [
     "companies_affected", "impact_usd_total",
     # Movement vs the previous run, blank until a second run exists.
     "no_longer_flagged", "newly_flagged", "persisting",
+    # Fingerprint of the check's SQL; movement is only meaningful when it matches
+    # across the two runs being compared.
+    "rule_version",
     # "bigquery" = the real warehouse; "snapshot" = the 9-company sample. The
     # dashboard shows this, so a local extract is never described wrongly.
     "source",
@@ -60,7 +63,8 @@ SELECT rule_id, severity, issue_count, companies_affected,
        CAST(IFNULL(impact_usd_total, 0) AS INT64) AS impact_usd_total,
        IFNULL(CAST(no_longer_flagged AS STRING), '') AS no_longer_flagged,
        IFNULL(CAST(newly_flagged AS STRING), '') AS newly_flagged,
-       IFNULL(CAST(persisting AS STRING), '') AS persisting
+       IFNULL(CAST(persisting AS STRING), '') AS persisting,
+       IFNULL(rule_version, '') AS rule_version
 FROM data_health.summary ORDER BY issue_count DESC
 """
 
@@ -169,6 +173,7 @@ def main() -> None:
             "issue_count": r.count,
             "companies_affected": len({i.company_id for i in r.issues}),
             "source": "snapshot",
+            "rule_version": "",
             "impact_usd_total": sum(
                 i.amount_usd or by_id[i.company_id].total_funding_usd
                 for i in r.issues if i.company_id in by_id
