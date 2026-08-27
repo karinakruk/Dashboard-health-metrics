@@ -198,12 +198,33 @@ function runQuery(sql) {
   return { headers: headers, rows: rows };
 }
 
-/** Append rows, writing the header only when the tab is new. */
+/**
+ * Append rows, keeping the header correct as the schema grows.
+ *
+ * Writing the header only when the tab is new was a bug: adding the movement
+ * columns left them with blank names above populated data, so the dashboard
+ * could not map them and reported "awaiting 2nd run" indefinitely. New columns
+ * are always appended at the end, so existing rows stay aligned and rewriting
+ * the header row alone repairs it.
+ */
 function appendRows(name, data) {
   var sheet = getOrCreateSheet(name);
+
   if (sheet.getLastRow() === 0) {
     sheet.appendRow(data.headers);
+  } else {
+    var width = Math.max(sheet.getLastColumn(), data.headers.length);
+    var existing = sheet.getRange(1, 1, 1, width).getValues()[0];
+    var mismatched = false;
+    for (var i = 0; i < data.headers.length; i++) {
+      if (existing[i] !== data.headers[i]) { mismatched = true; break; }
+    }
+    if (mismatched) {
+      sheet.getRange(1, 1, 1, data.headers.length).setValues([data.headers]);
+      Logger.log('Header on %s repaired to %s columns.', name, data.headers.length);
+    }
   }
+
   if (!data.rows.length) return;
   sheet.getRange(sheet.getLastRow() + 1, 1, data.rows.length, data.headers.length)
        .setValues(data.rows);
