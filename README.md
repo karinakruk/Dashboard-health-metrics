@@ -51,8 +51,11 @@ Three principles, each learned from getting it wrong first:
 ## The three checks the app cannot express
 
 `sql/standalone/` holds a runnable query for each check with no app filter.
-Paste one into the BigQuery console and it returns the companies, most-funded
-first. Each is verified to return exactly the count the dashboard shows:
+Each is verified to return exactly the count the dashboard shows, and each is
+also surfaced **in the dashboard itself** — the flag row carries a "Show
+BigQuery query" block with a copy button, generated from these files by
+`npm run sync-queries` in the Profile-edit-monitor repo rather than
+hand-copied.
 
 | Query | Returns | Why no app filter |
 |-------|--------:|-------------------|
