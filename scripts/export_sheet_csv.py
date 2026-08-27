@@ -35,9 +35,18 @@ from app.fixqueue import build_queue
 from app.models import load_snapshot
 
 SUMMARY_FILE = "funding_health_summary.csv"
+RECORDS_FILE = "funding_health_records.csv"
+
+# Records are exported only for the checks the Dealroom app cannot express; the
+# rest link straight into the app. Mirrors RECORD_RULES in the Apps Script.
+RECORD_RULES = ("vc_no_description", "vc_no_web_presence", "investor_no_people")
+RECORDS_PER_RULE = 200
+RECORDS_HEADERS = ["rule_id", "company_name", "company_url", "hq_country", "impact_usd"]
 SUMMARY_HEADERS = [
     "run_date", "rule_id", "severity", "issue_count",
     "companies_affected", "impact_usd_total",
+    # Movement vs the previous run, blank until a second run exists.
+    "no_longer_flagged", "newly_flagged", "persisting",
 ]
 
 PROJECT = "omega-dahlia-347111"
@@ -45,7 +54,10 @@ LOCATION = "europe-west4"
 
 SUMMARY_SQL = """
 SELECT rule_id, severity, issue_count, companies_affected,
-       CAST(IFNULL(impact_usd_total, 0) AS INT64) AS impact_usd_total
+       CAST(IFNULL(impact_usd_total, 0) AS INT64) AS impact_usd_total,
+       IFNULL(CAST(no_longer_flagged AS STRING), '') AS no_longer_flagged,
+       IFNULL(CAST(newly_flagged AS STRING), '') AS newly_flagged,
+       IFNULL(CAST(persisting AS STRING), '') AS persisting
 FROM data_health.summary ORDER BY issue_count DESC
 """
 
@@ -60,6 +72,21 @@ def bq_json(sql: str) -> list[dict]:
         raise SystemExit(
             "bq failed — is `gcloud auth login` current?\n" + out.stderr[-800:])
     return json.loads(out.stdout or "[]")
+
+
+RECORDS_SQL = """
+WITH ranked AS (
+  SELECT rule_id, company_name, IFNULL(company_url,'') AS company_url,
+         IFNULL(hq_country,'') AS hq_country,
+         CAST(IFNULL(impact_usd,0) AS INT64) AS impact_usd,
+         ROW_NUMBER() OVER (PARTITION BY rule_id
+                            ORDER BY impact_usd DESC NULLS LAST) AS rn
+  FROM data_health.issues
+  WHERE rule_id IN ({rules}))
+SELECT rule_id, company_name, company_url, hq_country, impact_usd
+FROM ranked WHERE rn <= {limit}
+ORDER BY rule_id, impact_usd DESC
+"""
 
 
 def from_bigquery(out: Path, run_date: str) -> int:
@@ -78,6 +105,15 @@ def from_bigquery(out: Path, run_date: str) -> int:
         w.writerows(existing)
         for r in summary:
             w.writerow({"run_date": run_date, **{k: r[k] for k in SUMMARY_HEADERS[1:]}})
+
+    rules = ",".join(f"'{r}'" for r in RECORD_RULES)
+    records = bq_json(RECORDS_SQL.format(rules=rules, limit=RECORDS_PER_RULE))
+    with (out / RECORDS_FILE).open("w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=RECORDS_HEADERS)
+        w.writeheader()
+        for r in records:
+            w.writerow({k: r[k] for k in RECORDS_HEADERS})
+    print(f"Wrote {out / RECORDS_FILE}  ({len(records)} records)")
 
     return len(summary)
 

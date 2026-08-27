@@ -40,11 +40,18 @@ var PROJECT_ID = 'omega-dahlia-347111';
 // The summary tab APPENDS one dated row per rule per run, so the trend builds
 // up on its own. The queue tab is REPLACED each run — it is a worklist, not history.
 var SHEET_SUMMARY = 'funding_health_summary';
+var SHEET_RECORDS = 'funding_health_records';
 
-// Only the per-check summary is exported. The dashboard reports counts and their
-// trend; the records themselves are worked in the Dealroom app, which each check
-// links to directly — so shipping a truncated copy of them into Sheets added a
-// second, staler source of truth for no gain.
+// Records are exported ONLY for the checks the Dealroom app cannot express.
+// The other checks link straight into the app, which is live, complete and
+// where the fixing happens — a copy of those rows here would be a staler
+// second source of truth. These three have no app filter at all, so without
+// this the dashboard is a dead end for them.
+var RECORD_RULES = "'vc_no_description','vc_no_web_presence','investor_no_people'";
+var RECORDS_PER_RULE = 200;
+
+// The per-check summary drives the counts and the trend. Records are exported
+// only for the checks with no app link (see RECORD_RULES).
 
 var SUMMARY_SQL =
   "SELECT " +
@@ -55,6 +62,20 @@ var SUMMARY_SQL =
   "  IFNULL(CAST(persisting AS STRING), '') AS persisting " +
   "FROM data_health.summary " +
   "ORDER BY issue_count DESC";
+
+
+var RECORDS_SQL =
+  "WITH ranked AS ( " +
+  "  SELECT rule_id, company_name, company_url, hq_country, impact_usd, " +
+  "         ROW_NUMBER() OVER (PARTITION BY rule_id " +
+  "                            ORDER BY impact_usd DESC NULLS LAST) AS rn " +
+  "  FROM data_health.issues " +
+  "  WHERE rule_id IN (" + RECORD_RULES + ")) " +
+  "SELECT rule_id, company_name, IFNULL(company_url,'') AS company_url, " +
+  "       IFNULL(hq_country,'') AS hq_country, " +
+  "       CAST(IFNULL(impact_usd,0) AS INT64) AS impact_usd " +
+  "FROM ranked WHERE rn <= " + RECORDS_PER_RULE + " " +
+  "ORDER BY rule_id, impact_usd DESC";
 
 /**
  * SMOKE TEST — run this FIRST, before anything else works.
@@ -144,7 +165,13 @@ function runStatement(sql) {
 function refreshFundingHealth() {
   var summary = runQuery(SUMMARY_SQL);
   appendRows(SHEET_SUMMARY, summary);   // history: one dated row per check per run
-  Logger.log('Data health refreshed: %s summary rows', summary.rows.length);
+
+  // Replaced, not appended: this is the current worklist, not a record of runs.
+  var records = runQuery(RECORDS_SQL);
+  replaceRows(SHEET_RECORDS, records);
+
+  Logger.log('Data health refreshed: %s summary rows, %s records',
+             summary.rows.length, records.rows.length);
 }
 
 /** Run a query and return {headers: [...], rows: [[...]]}, following pagination. */
