@@ -84,6 +84,10 @@ BEGIN
       -- the most recent transaction, and trusting it undercounted this check by
       -- roughly a third (81 rows instead of 115).
       e.flg_is_vcbacked                      AS is_vc_backed,
+      -- "Outside Tech" is a SECTOR (dim_tags id 11028), not a separate tag list —
+      -- it sits in entities.sectors alongside Hard Tech, Climate Tech and so on.
+      NOT EXISTS(SELECT 1 FROM UNNEST(e.sectors) sec
+                   WHERE sec.name = 'Outside Tech') AS is_tech,
       e.website                              AS website,
       e.linkedin                             AS linkedin,
       e.tagline                              AS tagline,
@@ -274,6 +278,9 @@ BEGIN
     FROM companies c
     WHERE c.is_vc_backed
       AND c.website IS NULL AND c.linkedin IS NULL
+      AND c.is_tech
+      AND c.growth_stage != 'Mature'
+      AND c.launch_year >= min_launch_year
   ),
 
   -- 9. Investors with nobody in key people.
@@ -305,6 +312,9 @@ BEGIN
     FROM companies c
     WHERE c.is_vc_backed
       AND c.tagline IS NULL AND c.about IS NULL
+      AND c.is_tech
+      AND c.growth_stage != 'Mature'
+      AND c.launch_year >= min_launch_year
   )
 
   SELECT

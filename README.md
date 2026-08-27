@@ -22,14 +22,17 @@ Eight checks, in two groups. Every count is the whole database, not a sample.
 | Big funding, ≤10 staff | ≥ $100M raised recently, ≤10 employees, excluding mature, post-acquisition and pre-1990 | 152 |
 | No location | Funded recently with no country set — equals the app's `regions/not_Global` | 117 |
 
-**Profile completeness**
+**Profile completeness.** The two company-profile checks are scoped to
+VC-backed **tech** companies founded 1990 or later and not mature — the same
+exclusions the team applies when working these lists, so the counts are
+actionable rather than a backlog.
 
 | Check | Definition | Count |
 |-------|-----------|------:|
-| VC-backed, no founder | VC-backed with no founder recorded | 123,206 |
-| Investor, no key people | Investors with nobody in key people | 62,791 |
-| VC-backed, no description | Neither tagline nor description | 8,475 |
-| VC-backed, no web presence | Neither website nor LinkedIn | 3,872 |
+| VC-backed, no founder | VC-backed with no founder recorded | 123,217 |
+| Investor, no key people | Investors with nobody in key people | 62,799 |
+| VC-backed, no description | Neither tagline nor description | 6,626 |
+| VC-backed, no web presence | Neither website nor LinkedIn | 2,659 |
 
 Three principles, each learned from getting it wrong first:
 
@@ -53,9 +56,9 @@ first. Each is verified to return exactly the count the dashboard shows:
 
 | Query | Returns | Why no app filter |
 |-------|--------:|-------------------|
-| `vc_no_description.sql` | 8,477 | no filter for a missing tagline or description |
+| `vc_no_description.sql` | 6,626 | no filter for a missing tagline or description |
 | `investor_no_people.sql` | 62,799 | no filter for investors missing key people |
-| `vc_no_web_presence.sql` | 3,872 | the app filters a missing website but not a missing LinkedIn |
+| `vc_no_web_presence.sql` | 2,659 | the app filters a missing website but not a missing LinkedIn |
 
 ## Measuring progress
 
