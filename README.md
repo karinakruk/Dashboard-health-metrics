@@ -29,8 +29,8 @@ actionable rather than a backlog.
 
 | Check | Definition | Count |
 |-------|-----------|------:|
-| VC-backed, no founder | VC-backed with no founder recorded | 123,217 |
-| Investor, no key people | Investors with nobody in key people | 62,799 |
+| VC-backed, no founder | VC-backed with no founder recorded | 123,220 |
+| VC firm, no key people | Venture capital firms with nobody in key people | 20,126 |
 | VC-backed, no description | Neither tagline nor description | 6,626 |
 | VC-backed, no web presence | Neither website nor LinkedIn | 2,659 |
 
@@ -60,7 +60,7 @@ hand-copied.
 | Query | Returns | Why no app filter |
 |-------|--------:|-------------------|
 | `vc_no_description.sql` | 6,626 | no filter for a missing tagline or description |
-| `investor_no_people.sql` | 62,799 | no filter for investors missing key people |
+| `vc_investor_no_people.sql` | 20,126 | no filter for VC firms missing key people |
 | `vc_no_web_presence.sql` | 2,659 | the app filters a missing website but not a missing LinkedIn |
 
 ## Measuring progress

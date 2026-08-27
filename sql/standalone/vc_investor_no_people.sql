@@ -1,12 +1,16 @@
 -- ============================================================================
--- Investors with nobody recorded in key people.
+-- VC firms with nobody recorded in key people.
 --
 -- Standalone: paste into the BigQuery console and run. No app filter exists for
 -- this.
 --
--- "Investor" means the entity appears in dealroom_intelligence.investors, whose
--- bobject_investor_id keys back to entities.id. "Key people" means any row in
--- people_organizations for that entity — past or present, any title.
+-- Scoped to VENTURE CAPITAL firms. The investors table is dominated by
+-- 'corporate' (98,142 of 215,689) — operating companies that happen to have
+-- made an investment — so an unscoped version returns mostly companies, for
+-- which "no key people" is not a meaningful finding.
+--
+-- "Key people" means any row in people_organizations for that entity: past or
+-- present, any title.
 -- ============================================================================
 
 WITH entity_people AS (
@@ -14,8 +18,9 @@ WITH entity_people AS (
   FROM dealroom_intelligence.people_organizations
 ),
 investor_entities AS (
-  SELECT DISTINCT bobject_investor_id AS entity_id
-  FROM dealroom_intelligence.investors
+  SELECT DISTINCT i.bobject_investor_id AS entity_id
+  FROM dealroom_intelligence.investors i
+  WHERE 'venture capital' IN UNNEST(i.investor_types)
 )
 SELECT
   e.name                                   AS investor,

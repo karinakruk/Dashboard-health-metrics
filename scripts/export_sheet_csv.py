@@ -39,8 +39,8 @@ RECORDS_FILE = "funding_health_records.csv"
 
 # Records are exported only for the checks the Dealroom app cannot express; the
 # rest link straight into the app. Mirrors RECORD_RULES in the Apps Script.
-RECORD_RULES = ("vc_no_description", "vc_no_web_presence", "investor_no_people")
-RECORDS_PER_RULE = 200
+RECORD_RULES = ("vc_no_description", "vc_no_web_presence", "vc_investor_no_people")
+RECORDS_PER_RULE = 1000
 RECORDS_HEADERS = ["rule_id", "company_name", "company_url", "hq_country", "impact_usd"]
 SUMMARY_HEADERS = [
     "run_date", "rule_id", "severity", "issue_count",

@@ -117,11 +117,17 @@ entity_founders AS (
 entity_people AS (
   SELECT DISTINCT entity_id FROM dealroom_intelligence.people_organizations
 ),
--- Which entities are investors. investors.bobject_investor_id keys back to
--- entities.id.
+-- VC firms only. investors.bobject_investor_id keys back to entities.id.
+--
+-- Scoped to 'venture capital' deliberately: the investors table is dominated by
+-- 'corporate' (98,142 of 215,689), i.e. operating companies that happen to have
+-- made an investment. Including them filled the list with the likes of GAC Aion
+-- and Sunwoda — companies, not investors, so "no key people" was not a
+-- meaningful finding for them.
 investor_entities AS (
-  SELECT DISTINCT CAST(bobject_investor_id AS STRING) AS company_id
-  FROM dealroom_intelligence.investors
+  SELECT DISTINCT CAST(i.bobject_investor_id AS STRING) AS company_id
+  FROM dealroom_intelligence.investors i
+  WHERE 'venture capital' IN UNNEST(i.investor_types)
 ),
 
 -- Rounds with a normalised type, used by every round-level check.
@@ -263,14 +269,14 @@ vc_no_web_presence AS (
     AND c.launch_year >= min_launch_year
 ),
 
--- 9. Investors with nobody in key people.
-investor_no_people AS (
+-- 9. VC firms with nobody in key people.
+vc_investor_no_people AS (
   SELECT
-    'investor_no_people', 'warning',
+    'vc_investor_no_people', 'warning',
     c.company_id, c.company_name, c.company_url, c.hq_country,
     CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS STRING), c.total_funding_usd,
     IFNULL(c.total_funding_usd, 0),
-    'Investor with no key people recorded.',
+    'VC firm with no key people recorded.',
     c.last_funding_year
   FROM companies c
   JOIN investor_entities ie USING (company_id)
@@ -307,7 +313,7 @@ FROM (
   UNION ALL SELECT * FROM high_funding_few_employees
   UNION ALL SELECT * FROM vc_no_founder
   UNION ALL SELECT * FROM vc_no_web_presence
-  UNION ALL SELECT * FROM investor_no_people
+  UNION ALL SELECT * FROM vc_investor_no_people
   UNION ALL SELECT * FROM vc_no_description
 );
 -- No ORDER BY here: a clustered CTAS cannot be ordered, and clustering by

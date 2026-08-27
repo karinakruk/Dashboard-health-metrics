@@ -129,7 +129,7 @@ def test_snapshot_runs_and_every_check_fires():
     # carries none of those fields — so they are expected to stay silent.
     warehouse_only = {
         "vc_no_founder", "vc_no_web_presence",
-        "investor_no_people", "vc_no_description",
+        "vc_investor_no_people", "vc_no_description",
     }
     for r in report.results:
         if r.meta.id in warehouse_only:

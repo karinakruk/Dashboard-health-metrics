@@ -47,8 +47,8 @@ var SHEET_RECORDS = 'funding_health_records';
 // where the fixing happens — a copy of those rows here would be a staler
 // second source of truth. These three have no app filter at all, so without
 // this the dashboard is a dead end for them.
-var RECORD_RULES = "'vc_no_description','vc_no_web_presence','investor_no_people'";
-var RECORDS_PER_RULE = 200;
+var RECORD_RULES = "'vc_no_description','vc_no_web_presence','vc_investor_no_people'";
+var RECORDS_PER_RULE = 1000;
 
 // The per-check summary drives the counts and the trend. Records are exported
 // only for the checks with no app link (see RECORD_RULES).

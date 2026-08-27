@@ -165,7 +165,7 @@ def check_vc_no_web_presence(companies: Iterable[Company]) -> Iterator[Issue]:
     return iter(())
 
 
-def check_investor_no_people(companies: Iterable[Company]) -> Iterator[Issue]:
+def check_vc_investor_no_people(companies: Iterable[Company]) -> Iterator[Issue]:
     """Investors with nobody in key people. Warehouse-only."""
     return iter(())
 
@@ -223,9 +223,9 @@ ALL_CHECKS: list[tuple[CheckMeta, object]] = [
         check_vc_no_web_presence,
     ),
     (
-        CheckMeta("investor_no_people", "Investor, no key people",
-                  "Investors with nobody recorded in key people.", WARNING),
-        check_investor_no_people,
+        CheckMeta("vc_investor_no_people", "VC investor, no key people",
+                  "VC firms with nobody recorded in key people.", WARNING),
+        check_vc_investor_no_people,
     ),
     (
         CheckMeta("vc_no_description", "VC-backed, no description",
