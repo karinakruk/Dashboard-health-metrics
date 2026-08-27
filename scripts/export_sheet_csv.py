@@ -47,6 +47,9 @@ SUMMARY_HEADERS = [
     "companies_affected", "impact_usd_total",
     # Movement vs the previous run, blank until a second run exists.
     "no_longer_flagged", "newly_flagged", "persisting",
+    # "bigquery" = the real warehouse; "snapshot" = the 9-company sample. The
+    # dashboard shows this, so a local extract is never described wrongly.
+    "source",
 ]
 
 PROJECT = "omega-dahlia-347111"
@@ -104,7 +107,8 @@ def from_bigquery(out: Path, run_date: str) -> int:
         w.writeheader()
         w.writerows(existing)
         for r in summary:
-            w.writerow({"run_date": run_date, **{k: r[k] for k in SUMMARY_HEADERS[1:]}})
+            w.writerow({"run_date": run_date, "source": "bigquery",
+                        **{k: r[k] for k in SUMMARY_HEADERS[1:] if k != "source"}})
 
     rules = ",".join(f"'{r}'" for r in RECORD_RULES)
     records = bq_json(RECORDS_SQL.format(rules=rules, limit=RECORDS_PER_RULE))
@@ -164,6 +168,7 @@ def main() -> None:
             "severity": r.meta.severity,
             "issue_count": r.count,
             "companies_affected": len({i.company_id for i in r.issues}),
+            "source": "snapshot",
             "impact_usd_total": sum(
                 i.amount_usd or by_id[i.company_id].total_funding_usd
                 for i in r.issues if i.company_id in by_id
