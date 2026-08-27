@@ -62,10 +62,19 @@ fixing hundreds could see a dashboard reporting nothing happened.
 The Dealroom app cannot do this at any price: a search returns what matches now,
 and nothing stores what matched yesterday.
 
-Known deviation: `Big funding, ≤10 staff` reports 152 where the app reports 137
-for a comparable filter. Warehouse staleness, NULL launch years, NULL employees
-and the mature/acquisition exclusions are all ruled out; one of employees,
-total_funding or last_funding_year is measured differently in the app.
+**Known deviations.** Two checks differ slightly from the app for the same
+underlying reason — a field measured differently there than in the warehouse:
+
+| Check | Warehouse | App | Delta |
+|-------|----------:|----:|------:|
+| VC-backed, no founder | 123,206 | 123,116 | 0.07% |
+| Big funding, ≤10 staff | 152 | 137 | ~10% |
+
+For the founder check the filter is confirmed correct and the gap is noise. For
+the headcount check, warehouse staleness, NULL launch years, NULL employees and
+the mature/acquisition exclusions are all ruled out; relaxing every remaining
+condition still caps below the app's figure, so one of employees, total_funding
+or last_funding_year is measured differently there.
 
 ## Architecture
 
