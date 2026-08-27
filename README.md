@@ -45,6 +45,18 @@ Three principles, each learned from getting it wrong first:
   window is 24 rolling months, and the dashboard derives its link years from the
   same rule so the two cannot drift.
 
+## The three checks the app cannot express
+
+`sql/standalone/` holds a runnable query for each check with no app filter.
+Paste one into the BigQuery console and it returns the companies, most-funded
+first. Each is verified to return exactly the count the dashboard shows:
+
+| Query | Returns | Why no app filter |
+|-------|--------:|-------------------|
+| `vc_no_description.sql` | 8,477 | no filter for a missing tagline or description |
+| `investor_no_people.sql` | 62,799 | no filter for investors missing key people |
+| `vc_no_web_presence.sql` | 3,872 | the app filters a missing website but not a missing LinkedIn |
+
 ## Measuring progress
 
 `data_health.issues` is rebuilt each run, so on its own it can only ever say
