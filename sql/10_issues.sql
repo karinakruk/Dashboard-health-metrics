@@ -199,19 +199,25 @@ missing_location AS (
 --      launch_year_min/anyof_1990
 --    The exclusions matter: mature companies and post-acquisition shells
 --    legitimately run on few staff, and pre-1990 launches are mostly bad data.
---    Verified at 115 companies (the app reports 137 — see README).
+--    Verified against the app's own filter set.
 high_funding_few_employees AS (
   SELECT
     'high_funding_few_employees', 'serious',
     c.company_id, c.company_name, c.company_url, c.hq_country,
     CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS STRING), c.total_funding_usd,
     c.total_funding_usd,
-    CONCAT(CAST(c.employees AS STRING), ' employees but ',
-           FORMAT('%.1f', c.total_funding_usd / 1e9), 'B total funding — headcount likely missing or stale.'),
+    CONCAT(
+      CASE WHEN c.employees IS NULL THEN 'No employee count recorded'
+           ELSE CONCAT(CAST(c.employees AS STRING), ' employees') END,
+      ' but ', FORMAT('%.1f', c.total_funding_usd / 1e9),
+      'B total funding — headcount likely missing or stale.'),
     c.last_funding_year
   FROM companies c
-  WHERE c.employees IS NOT NULL
-    AND c.employees <= employee_ceiling
+  -- An unknown employee count counts as <= the ceiling. This matches the app's
+  -- employees_max filter, and it is also the stronger reading of the check: the
+  -- rule is about headcount being missing or stale, and NULL is the purest case
+  -- of missing. Requiring a known value excluded exactly those profiles.
+  WHERE (c.employees IS NULL OR c.employees <= employee_ceiling)
     AND c.total_funding_usd >= high_funding_usd
     AND c.growth_stage != 'Mature'
     AND IFNULL(c.last_round_type, '') != 'ACQUISITION'
